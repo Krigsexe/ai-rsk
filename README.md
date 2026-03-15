@@ -16,6 +16,7 @@
 </p>
 
 ---
+[![Visitors Badge](https://api.visitorbadge.io/api/VisitorHit?user=Krigsexe&repo=ai-rsk&countColor=%23FFA500)](https://github.com/Krigsexe/ai-rsk)
 
 ai-rsk blocks your build until security issues are fixed. One Rust binary. Three external tools. 31 built-in rules. Your AI can't deploy insecure code because the build won't pass.
 
