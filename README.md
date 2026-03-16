@@ -323,7 +323,7 @@ ai-rsk goes beyond security with compliance profiles that you select during `ai-
 |---------|------|------------------|
 | **security** | always active | OWASP Top 10, CWE Top 25, security headers, auth, crypto, input validation |
 | **gdpr** | `--gdpr` | RGPD/GDPR: cookie consent, tracking scripts, PII in storage, privacy page |
-| **ai-act** | `--ai-act` | EU AI Act (Aug 2026): AI output labeling, system prompt protection, audit logs, token limits |
+| **ai-act** | `--ai-act` | EU AI Act Art. 50 + Cyber Resilience Act: AI output labeling, system prompt protection, audit logs, token limits |
 | **seo** | `--seo` | robots.txt, sitemap.xml, meta viewport, canonical URLs |
 | **a11y** | `--a11y` | WCAG 2.2 Level A: img alt, html lang, form labels |
 

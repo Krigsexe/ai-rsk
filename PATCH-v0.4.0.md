@@ -19,5 +19,6 @@
 - Discipline LLM file includes AI Act section with specific instructions when --ai-act profile is active.
 
 ## Enforcement
-- August 2, 2026 deadline for EU AI Act transparency obligations.
-- Penalties up to 35M EUR or 7% global annual turnover.
+- EU AI Act Article 50(1-2): providers must mark AI-generated outputs and ensure traceability. Applies August 2, 2026.
+- EU Cyber Resilience Act (CRA): software vendors are legally liable for vulnerabilities in their products. Reporting obligations apply September 11, 2026. Full compliance December 11, 2027.
+- Penalties: up to 35M EUR / 7% turnover (AI Act) or 15M EUR / 2.5% turnover (CRA).

@@ -46,7 +46,7 @@ pub enum Commands {
         #[arg(long)]
         a11y: bool,
 
-        /// Enable EU AI Act compliance checks (labeling, transparency)
+        /// Enable EU AI Act compliance checks (AI output labeling, audit logs, token limits)
         #[arg(long)]
         ai_act: bool,
 
