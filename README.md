@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://github.com/Krigsexe/ai-rsk/releases"><img src="https://img.shields.io/github/v/release/Krigsexe/ai-rsk" alt="Release"></a>
+  <a href="https://crates.io/crates/ai-rsk"><img src="https://img.shields.io/crates/v/ai-rsk.svg" alt="crates.io"></a>
 </p>
 
 <p align="center">
