@@ -1,0 +1,47 @@
+id: IMG_NO_ALT
+version: 2
+severity: WARN
+category: a11y
+cwe:
+  - "CWE-1059"
+source:
+  name: "WCAG 2.2 Success Criterion 1.1.1 — Non-text Content"
+  quote: "All non-text content that is presented to the user has a text alternative that serves the equivalent purpose."
+  note: "Missing alt text on images makes content inaccessible to screen reader users and violates WCAG 2.2 Level A. Also required by ADA Title II (effective April 2026) and European Accessibility Act. Search engines also use alt text for indexing."
+  verified: true
+  verified_date: "2026-03-16"
+languages:
+  - html
+  - javascript
+  - typescript
+file_patterns:
+  - "*.html"
+  - "*.htm"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.vue"
+  - "*.svelte"
+patterns:
+  # img with src but no alt — most common violation patterns
+  # Rust regex does not support lookahead, so we match specific attribute orders
+  - "<img\\s+src\\s*=\\s*['\"][^'\"]*['\"]\\s*>"
+  - "<img\\s+src\\s*=\\s*['\"][^'\"]*['\"]\\s+class\\s*=\\s*['\"][^'\"]*['\"]\\s*>"
+  - "<img\\s+class\\s*=\\s*['\"][^'\"]*['\"]\\s+src\\s*=\\s*['\"][^'\"]*['\"]\\s*>"
+negation: true
+negation_pattern: "\\balt\\s*="
+agnostic_negation: false
+case_insensitive: true
+message: "Image tag without alt attribute detected. Screen readers cannot describe this image to visually impaired users. WCAG 2.2 Level A requires all images to have meaningful alt text."
+fix: |
+  Add descriptive alt text to all images:
+
+    <!-- WRONG — no alt attribute: -->
+    <img src="photo.jpg">
+
+    <!-- RIGHT — descriptive alt text: -->
+    <img src="team-photo.jpg" alt="Team members at the 2026 company retreat">
+
+    <!-- RIGHT — decorative image (explicitly empty alt + role): -->
+    <img src="decorative-border.svg" alt="" role="presentation">
+
+  For JSX/TSX: same rules apply with alt={""} syntax.

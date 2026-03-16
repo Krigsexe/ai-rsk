@@ -1,0 +1,57 @@
+id: PII_IN_LOCALSTORAGE
+version: 1
+severity: WARN
+category: gdpr
+cwe:
+  - "CWE-922"
+source:
+  name: "RGPD Article 5(1)(f) + CNIL guidelines on web storage"
+  quote: "Personal data shall be processed in a manner that ensures appropriate security of the personal data, including protection against unauthorized or unlawful processing. localStorage and sessionStorage are accessible to any JavaScript on the page and persist beyond the session."
+  note: "CNIL treats localStorage and sessionStorage identically to cookies for GDPR compliance. Storing PII (email, phone, name, address, SSN, DOB) in browser storage without encryption exposes it to XSS attacks and violates the data minimization principle. Use httpOnly cookies or server-side sessions instead."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # Email stored in localStorage/sessionStorage
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(email|e[_-]?mail)[^'\"`]*['\"`]"
+  # Phone number
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(phone|tel[eé]?phone|mobile|cellphone)[^'\"`]*['\"`]"
+  # Full name / first name / last name
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(first[_-]?name|last[_-]?name|full[_-]?name|user[_-]?name|prenom|nom[_-]?famille)[^'\"`]*['\"`]"
+  # Physical address
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(address|street|zip[_-]?code|postal[_-]?code|city|adresse)[^'\"`]*['\"`]"
+  # SSN / National ID
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(ssn|social[_-]?security|national[_-]?id|nir|numero[_-]?secu)[^'\"`]*['\"`]"
+  # Date of birth
+  - "(localStorage|sessionStorage)\\.(setItem|getItem)\\s*\\(\\s*['\"`][^'\"`]*(dob|date[_-]?of[_-]?birth|birth[_-]?date|birthday|date[_-]?naissance)[^'\"`]*['\"`]"
+negation: false
+case_insensitive: true
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+message: "Personally Identifiable Information (PII) detected in localStorage/sessionStorage. Under RGPD/GDPR Article 5(1)(f), personal data must be stored with appropriate security. Browser storage is accessible to ANY JavaScript on the page (including XSS payloads) and persists on disk. This violates the data minimization and security principles."
+fix: |
+  Move PII to server-side storage with httpOnly cookies for session identification:
+
+    // WRONG — PII exposed to any JS on the page:
+    localStorage.setItem('userEmail', user.email);
+
+    // RIGHT — Store in httpOnly cookie (not accessible to JS):
+    // Server-side: res.cookie('session', sessionId, { httpOnly: true, secure: true, sameSite: 'strict' });
+    // Client-side: only store the session ID, fetch user data from API when needed.
+
+    // RIGHT — If you MUST cache user data client-side, encrypt it:
+    const encrypted = await crypto.subtle.encrypt(key, JSON.stringify(userData));
+    sessionStorage.setItem('userData', encrypted);
+
+  NEVER store raw PII (email, phone, name, address, SSN, DOB) in browser storage.

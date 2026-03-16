@@ -20,6 +20,7 @@ patterns:
   - '\.cookie\s*\('
 negation: true
 negation_pattern: "sameSite\\s*:\\s*['\"]?(strict|lax|none)['\"]?"
+agnostic_negation: false
 case_insensitive: true
 message: "Cookie set without SameSite flag. The cookie is vulnerable to CSRF attacks via cross-site requests."
 fix: |

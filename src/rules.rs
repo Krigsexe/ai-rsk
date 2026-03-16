@@ -24,23 +24,39 @@ pub struct Rule {
     pub negation: bool,
     #[serde(default)]
     pub negation_pattern: Option<String>,
+    // Agnostic negation: when true (default), the negation pattern is checked project-wide.
+    // When false, the negation pattern is checked per-file only.
+    // Use false for rules where each occurrence must individually satisfy the negation
+    // (e.g., each .cookie() call must have httpOnly, not just one cookie in the project).
+    #[serde(default = "default_agnostic_negation")]
+    pub agnostic_negation: bool,
     // Per-rule path exclusions: if the file's relative path starts with any of these prefixes,
     // the rule is skipped for that file. Used to distinguish client vs server code.
     // Example: ["api/", "server/", "backend/"] to skip server-side files for client-only rules.
     #[serde(default)]
     pub exclude_paths: Vec<String>,
+    // Category determines which compliance profile activates this rule.
+    // Values: "security" (default, always active), "gdpr", "ai-act", "seo", "a11y".
+    // Rules with non-security categories only fire when the corresponding profile is active.
+    #[serde(default = "default_category")]
+    pub category: String,
+    // Mode filter: if set, the rule only fires in the specified mode.
+    // Values: None (always active), "production", "development".
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 /// Directories to exclude from scanning (code that isn't ours + test code).
 /// Test directories are excluded because test files are not part of the
 /// production build - findings in tests are false positives by definition.
 const EXCLUDED_DIRS: &[&str] = &[
-    // Third-party / generated
+    // Third-party / generated / bundled
     "node_modules",
     "vendor",
     ".git",
     "dist",
     "build",
+    "bundle",
     "out",
     "__pycache__",
     ".pytest_cache",
@@ -98,7 +114,7 @@ fn load_rules_from_disk(rules_dir: &Path) -> Result<Vec<Rule>> {
 }
 
 /// Load rules embedded in the binary at compile time.
-/// These are the 21 YAML rules from rules/ compiled via include_str!.
+/// These are the YAML rules from rules/ compiled via include_str!.
 fn load_embedded_rules() -> Result<Vec<Rule>> {
     let mut rules = Vec::new();
 
@@ -163,7 +179,25 @@ fn is_excluded(path: &Path) -> bool {
         return true;
     }
 
+    // Exclude minified files (generated code, not source - always false positives)
+    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+        && (name.ends_with(".min.js") || name.ends_with(".min.css") || name.ends_with(".min.mjs"))
+    {
+        return true;
+    }
+
     false
+}
+
+/// Detect if a file is minified by checking if the first line exceeds a threshold.
+/// Minified JS/CSS files have extremely long lines (often 100K+ characters on a single line).
+/// No human-written source code has lines longer than 500 characters.
+fn is_minified(content: &str) -> bool {
+    if let Some(first_line) = content.lines().next() {
+        first_line.len() > 500
+    } else {
+        false
+    }
 }
 
 /// Parse the ai-rsk-ignore comment on the line before a match.
@@ -212,7 +246,12 @@ pub fn scan_files(
     // called anywhere in the project, the rule is satisfied for ALL files.
     // This prevents false positives on routers/tests that use express()
     // without mentioning helmet - helmet protects the whole server.
-    let negation_rules: Vec<&Rule> = rules.iter().filter(|r| r.negation).collect();
+    // Only include agnostic negation rules in the project-wide pre-scan.
+    // Per-file negation rules (agnostic_negation: false) are checked during the main scan.
+    let negation_rules: Vec<&Rule> = rules
+        .iter()
+        .filter(|r| r.negation && r.agnostic_negation)
+        .collect();
     let mut globally_satisfied_rules: std::collections::HashSet<String> =
         std::collections::HashSet::new();
 
@@ -250,7 +289,12 @@ pub fn scan_files(
             }
 
             let content = match std::fs::read_to_string(file_path) {
-                Ok(c) => c,
+                Ok(c) => {
+                    if is_minified(&c) {
+                        continue;
+                    }
+                    c
+                }
                 Err(_) => continue,
             };
 
@@ -339,18 +383,42 @@ pub fn scan_files(
 
             // Read file content
             let content = match std::fs::read_to_string(file_path) {
-                Ok(c) => c,
+                Ok(c) => {
+                    // Skip minified files (generated code — first line > 500 chars)
+                    if is_minified(&c) {
+                        continue;
+                    }
+                    c
+                }
                 Err(_) => continue, // Skip binary files or unreadable files
             };
 
             let lines: Vec<&str> = content.lines().collect();
 
-            // For negation rules: use the agnostic pre-scan result.
-            // If the negation pattern was found ANYWHERE in the project,
-            // this rule is globally satisfied - skip it entirely.
+            // For negation rules with agnostic_negation: true (default),
+            // use the project-wide pre-scan result.
+            // For negation rules with agnostic_negation: false,
+            // check the negation pattern in THIS file only.
             if rule.negation {
-                if globally_satisfied_rules.contains(&rule.id) {
-                    continue; // Negation pattern found elsewhere - no violation
+                if rule.agnostic_negation {
+                    // Agnostic: negation found anywhere in project = rule satisfied
+                    if globally_satisfied_rules.contains(&rule.id) {
+                        continue;
+                    }
+                } else {
+                    // Per-file: check negation in this file only
+                    if let Some(neg_pat) = &rule.negation_pattern {
+                        let neg_satisfied = match RegexBuilder::new(neg_pat)
+                            .case_insensitive(rule.case_insensitive)
+                            .build()
+                        {
+                            Ok(re) => re.is_match(&content),
+                            Err(_) => false,
+                        };
+                        if neg_satisfied {
+                            continue; // This file has the negation pattern - no violation here
+                        }
+                    }
                 }
 
                 let has_positive_match =
@@ -371,7 +439,6 @@ pub fn scan_files(
                     });
 
                 if has_positive_match {
-                    // Positive pattern found and negation absent project-wide = violation
                     let rel_path = file_path.strip_prefix(project_path).unwrap_or(file_path);
                     findings.push(Finding {
                         severity: parse_severity(&rule.severity),
@@ -447,6 +514,14 @@ pub fn scan_files(
     Ok((findings, ignore_count))
 }
 
+fn default_agnostic_negation() -> bool {
+    true
+}
+
+fn default_category() -> String {
+    "security".to_string()
+}
+
 fn parse_severity(s: &str) -> Severity {
     match s.to_uppercase().as_str() {
         "BLOCK" => Severity::Block,
@@ -500,6 +575,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         }
     }
 
@@ -639,6 +717,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r#"app\.disable\s*\(\s*['"]x-powered-by"#.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         }
     }
 
@@ -726,6 +807,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -753,6 +837,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -784,6 +871,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -813,6 +903,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -842,6 +935,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r"event\.origin|e\.origin".to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -868,6 +964,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r"event\.origin|e\.origin".to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -899,6 +998,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -930,6 +1032,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -961,6 +1066,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -989,6 +1097,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -1020,6 +1131,9 @@ mod tests {
                 r"content-security-policy|contentSecurityPolicy|helmet\s*\(|csp\s*\(".to_string(),
             ),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -1050,6 +1164,9 @@ mod tests {
                 r"content-security-policy|contentSecurityPolicy|helmet\s*\(|csp\s*\(".to_string(),
             ),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -1082,6 +1199,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
 
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
@@ -1107,6 +1227,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(neg_pattern.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         }
     }
 
@@ -1226,6 +1349,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1251,6 +1377,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1280,6 +1409,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r"rateLimit|rate-limit|rateLimiter|slowDown|express-rate-limit|limiter".to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1306,6 +1438,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r"rateLimit|rate-limit|rateLimiter|slowDown|express-rate-limit|limiter".to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1338,6 +1473,9 @@ mod tests {
                     .to_string(),
             ),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1368,6 +1506,9 @@ mod tests {
                     .to_string(),
             ),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1397,6 +1538,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1424,6 +1568,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1451,6 +1598,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r#"rel\s*=\s*['"][^'"]*noopener"#.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1476,6 +1626,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r#"rel\s*=\s*['"][^'"]*noopener"#.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1503,6 +1656,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r#"integrity\s*=\s*['"]sha"#.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 1);
@@ -1527,6 +1683,9 @@ mod tests {
             negation: true,
             negation_pattern: Some(r#"integrity\s*=\s*['"]sha"#.to_string()),
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0);
@@ -1556,6 +1715,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 2); // price and quantity
@@ -1586,6 +1748,9 @@ mod tests {
             negation: false,
             negation_pattern: None,
             exclude_paths: vec![],
+            agnostic_negation: true,
+            category: "security".to_string(),
+            mode: None,
         };
         let (findings, _) = scan_files(dir.path(), &[rule], &[]).expect("scan");
         assert_eq!(findings.len(), 0); // name and email are not business values
@@ -1594,13 +1759,24 @@ mod tests {
     // ─── Load all real YAML rules test ───
 
     #[test]
-    fn test_load_all_31_rules() {
+    fn test_load_all_rules() {
         let rules_dir = Path::new("rules");
         if rules_dir.exists() {
-            let rules = load_rules(rules_dir).expect("Failed to load rules");
-            assert_eq!(rules.len(), 31, "Expected 31 rules in rules/ directory");
+            let disk_rules = load_rules(rules_dir).expect("Failed to load rules from disk");
+            let embedded_rules = load_embedded_rules().expect("Failed to load embedded rules");
 
-            for rule in &rules {
+            // Dynamic check: disk rules must match embedded rules count
+            assert_eq!(
+                disk_rules.len(),
+                embedded_rules.len(),
+                "Mismatch: {} YAML files on disk vs {} entries in embedded_rules.rs. \
+                 Did you forget to add a new rule to embedded_rules.rs?",
+                disk_rules.len(),
+                embedded_rules.len()
+            );
+
+            // Verify all rules have required fields
+            for rule in &disk_rules {
                 assert!(!rule.id.is_empty(), "Rule ID must not be empty");
                 assert!(
                     !rule.patterns.is_empty(),
@@ -1618,6 +1794,11 @@ mod tests {
                     "Rule {} must have at least one CWE",
                     rule.id
                 );
+            }
+
+            // Verify all embedded rules also parse correctly
+            for rule in &embedded_rules {
+                assert!(!rule.id.is_empty(), "Embedded rule ID must not be empty");
             }
         }
     }

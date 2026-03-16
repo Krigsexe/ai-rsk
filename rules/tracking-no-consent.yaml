@@ -1,0 +1,66 @@
+id: TRACKING_NO_CONSENT
+version: 1
+severity: BLOCK
+category: gdpr
+cwe:
+  - "CWE-359"
+source:
+  name: "ePrivacy Directive Article 5(3) + RGPD Article 6"
+  quote: "Storing or accessing information on a user's terminal equipment is only allowed on condition that the subscriber or user has given consent, having been provided with clear and comprehensive information about the purposes of the processing."
+  note: "EDPB and national DPAs (CNIL, ICO) mandate explicit consent BEFORE deploying analytics, marketing, or tracking cookies. Legitimate interest cannot justify marketing or analytics tracking. Google Consent Mode v2 requires gtag('consent','default') BEFORE any gtag('config'). Facebook requires fbq('consent','revoke') before consent."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+  - html
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+  - "*.html"
+patterns:
+  # Google Analytics / gtag.js — initialization or event tracking
+  - "gtag\\s*\\(\\s*['\"]config['\"]"
+  - "gtag\\s*\\(\\s*['\"]event['\"]"
+  # Google Tag Manager — container script injection
+  - "googletagmanager\\.com/gtm\\.js"
+  - "GoogleAnalyticsObject"
+  # Facebook Pixel — initialization or event tracking
+  - "fbq\\s*\\(\\s*['\"]init['\"]"
+  - "fbq\\s*\\(\\s*['\"]track['\"]"
+  # Matomo / Piwik
+  - "_paq\\.push"
+  # Hotjar — session recording
+  - "hotjar\\.com"
+  - "\\bhj\\s*\\(\\s*['\"]"
+negation: true
+negation_pattern: "cookie[_-]?[Cc]onsent|hasConsent|consentGranted|consent_granted|gdpr[_-]?[Cc]onsent|acceptCookies|accept_cookies|CookieBot|OneTrust|CookieYes|cookie[_-]?script|Klaro|Osano|Didomi|Axeptio|tarteaucitron|gtag\\s*\\(\\s*['\"]consent['\"]|fbq\\s*\\(\\s*['\"]consent['\"]"
+agnostic_negation: true
+case_insensitive: false
+message: "Tracking script loaded without visible consent mechanism. Under RGPD/GDPR (Article 6) and ePrivacy Directive (Article 5.3), analytics and tracking cookies require explicit user consent BEFORE activation. Loading gtag, Facebook Pixel, Matomo, or Hotjar without a consent check violates EU privacy law. European DPAs (CNIL, ICO) are actively enforcing fines for non-compliance."
+fix: |
+  1. Add a Consent Management Platform (CMP) or implement consent logic BEFORE loading tracking scripts:
+
+     // Google Consent Mode v2 — set defaults BEFORE gtag('config')
+     gtag('consent', 'default', {
+       analytics_storage: 'denied',
+       ad_storage: 'denied',
+     });
+
+     // Only enable after user explicitly consents:
+     gtag('consent', 'update', {
+       analytics_storage: 'granted',
+     });
+
+  2. For Facebook Pixel:
+     fbq('consent', 'revoke');  // Block cookies until consent
+     // After consent:
+     fbq('consent', 'grant');
+
+  3. Use a CMP library: CookieBot, OneTrust, CookieYes, tarteaucitron, Klaro, Osano, Didomi, or Axeptio.
+
+  4. NEVER load tracking scripts unconditionally. Always gate them behind user consent.

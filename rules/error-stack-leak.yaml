@@ -1,0 +1,53 @@
+id: ERROR_STACK_LEAK
+version: 1
+severity: WARN
+category: security
+cwe:
+  - "CWE-209"
+source:
+  name: "CWE-209: Generation of Error Message Containing Sensitive Information"
+  quote: "The product generates an error message that includes sensitive information about its environment, users, or associated data."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # Sending error stack or message directly to client
+  - "res\\.(send|json)\\s*\\(\\s*(err|error)\\.stack"
+  - "res\\.(send|json)\\s*\\(\\s*(err|error)\\.message"
+  - "res\\.(send|json)\\s*\\(\\s*\\{[^}]*(error|message)\\s*:\\s*(err|error)\\s*[},]"
+  - "res\\.status\\s*\\([^)]*\\)\\.(send|json)\\s*\\(\\s*(err|error)"
+  - "res\\.status\\s*\\([^)]*\\)\\.(send|json)\\s*\\(\\s*\\{[^}]*(err|error)\\.(message|stack)"
+case_insensitive: false
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+message: "Error object or stack trace sent directly to client response. In production, this leaks internal paths, library versions, database schema, and server configuration to attackers. Error messages should be generic for clients; detailed errors should only go to server logs."
+fix: |
+  Send generic error messages to clients, log details server-side:
+    // WRONG - leaks internals:
+    app.use((err, req, res, next) => {
+      res.status(500).json({ error: err.message, stack: err.stack });
+    });
+
+    // RIGHT - generic client message, detailed server log:
+    app.use((err, req, res, next) => {
+      console.error(err.stack); // Server-side only
+      res.status(500).json({ error: 'Internal server error' });
+    });
+
+    // RIGHT - with structured logging:
+    app.use((err, req, res, next) => {
+      logger.error({ err, requestId: req.id }, 'Unhandled error');
+      res.status(500).json({ error: 'Internal server error', requestId: req.id });
+    });
+
+  NEVER send err.stack, err.message, or the raw error object to res.json() or res.send().

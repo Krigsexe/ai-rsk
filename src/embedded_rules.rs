@@ -6,6 +6,10 @@
 /// it takes precedence over these embedded rules.
 pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     (
+        "ai-output-no-label.yaml",
+        include_str!("../rules/ai-output-no-label.yaml"),
+    ),
+    (
         "bearer-exposed-client.yaml",
         include_str!("../rules/bearer-exposed-client.yaml"),
     ),
@@ -34,16 +38,49 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
         include_str!("../rules/dangerouslysetinnerhtml-dynamic.yaml"),
     ),
     (
+        "error-stack-leak.yaml",
+        include_str!("../rules/error-stack-leak.yaml"),
+    ),
+    (
         "eval-dynamic.yaml",
         include_str!("../rules/eval-dynamic.yaml"),
+    ),
+    (
+        "exec-dynamic-python.yaml",
+        include_str!("../rules/exec-dynamic-python.yaml"),
+    ),
+    (
+        "form-no-label.yaml",
+        include_str!("../rules/form-no-label.yaml"),
     ),
     (
         "hardcoded-secret.yaml",
         include_str!("../rules/hardcoded-secret.yaml"),
     ),
     (
+        "http-no-timeout.yaml",
+        include_str!("../rules/http-no-timeout.yaml"),
+    ),
+    ("img-no-alt.yaml", include_str!("../rules/img-no-alt.yaml")),
+    (
+        "jwt-no-expiry.yaml",
+        include_str!("../rules/jwt-no-expiry.yaml"),
+    ),
+    (
         "jwt-sensitive-payload.yaml",
         include_str!("../rules/jwt-sensitive-payload.yaml"),
+    ),
+    (
+        "llm-call-no-audit-log.yaml",
+        include_str!("../rules/llm-call-no-audit-log.yaml"),
+    ),
+    (
+        "llm-no-token-limit.yaml",
+        include_str!("../rules/llm-no-token-limit.yaml"),
+    ),
+    (
+        "math-random-crypto.yaml",
+        include_str!("../rules/math-random-crypto.yaml"),
     ),
     (
         "missing-csp.yaml",
@@ -58,8 +95,16 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
         include_str!("../rules/missing-httponly.yaml"),
     ),
     (
+        "missing-permissions-policy.yaml",
+        include_str!("../rules/missing-permissions-policy.yaml"),
+    ),
+    (
         "missing-rate-limit.yaml",
         include_str!("../rules/missing-rate-limit.yaml"),
+    ),
+    (
+        "missing-referrer-policy.yaml",
+        include_str!("../rules/missing-referrer-policy.yaml"),
     ),
     (
         "missing-samesite.yaml",
@@ -83,6 +128,14 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     ),
     ("no-helmet.yaml", include_str!("../rules/no-helmet.yaml")),
     (
+        "no-html-lang.yaml",
+        include_str!("../rules/no-html-lang.yaml"),
+    ),
+    (
+        "path-traversal-fs.yaml",
+        include_str!("../rules/path-traversal-fs.yaml"),
+    ),
+    (
         "postmessage-no-origin.yaml",
         include_str!("../rules/postmessage-no-origin.yaml"),
     ),
@@ -93,6 +146,10 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     (
         "select-star-response.yaml",
         include_str!("../rules/select-star-response.yaml"),
+    ),
+    (
+        "sql-injection-concat.yaml",
+        include_str!("../rules/sql-injection-concat.yaml"),
     ),
     (
         "source-maps-in-prod.yaml",
@@ -107,16 +164,48 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
         include_str!("../rules/stripe-no-webhook-verify.yaml"),
     ),
     (
+        "subprocess-shell.yaml",
+        include_str!("../rules/subprocess-shell.yaml"),
+    ),
+    (
+        "system-prompt-client-exposed.yaml",
+        include_str!("../rules/system-prompt-client-exposed.yaml"),
+    ),
+    (
+        "text-template-html.yaml",
+        include_str!("../rules/text-template-html.yaml"),
+    ),
+    (
         "token-in-localstorage.yaml",
         include_str!("../rules/token-in-localstorage.yaml"),
+    ),
+    (
+        "unprotected-api-route.yaml",
+        include_str!("../rules/unprotected-api-route.yaml"),
     ),
     (
         "unvalidated-redirect.yaml",
         include_str!("../rules/unvalidated-redirect.yaml"),
     ),
     (
+        "weak-hash-bcrypt.yaml",
+        include_str!("../rules/weak-hash-bcrypt.yaml"),
+    ),
+    (
         "websocket-no-auth.yaml",
         include_str!("../rules/websocket-no-auth.yaml"),
+    ),
+    (
+        "pii-in-localstorage.yaml",
+        include_str!("../rules/pii-in-localstorage.yaml"),
+    ),
+    (
+        "pickle-load.yaml",
+        include_str!("../rules/pickle-load.yaml"),
+    ),
+    (
+        "tracking-no-consent.yaml",
+        include_str!("../rules/tracking-no-consent.yaml"),
     ),
     (
         "window-opener-no-noopener.yaml",
@@ -125,5 +214,9 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     (
         "xpoweredby-exposed.yaml",
         include_str!("../rules/xpoweredby-exposed.yaml"),
+    ),
+    (
+        "yaml-unsafe.yaml",
+        include_str!("../rules/yaml-unsafe.yaml"),
     ),
 ];

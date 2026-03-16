@@ -1,0 +1,38 @@
+id: YAML_UNSAFE
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-502"
+source:
+  name: "CWE-502 + CVE-2020-1747 (PyYAML arbitrary code execution)"
+  quote: "yaml.load() with Loader=Loader or without specifying a safe loader allows arbitrary Python object instantiation, leading to remote code execution."
+  note: "PyYAML yaml.load() without SafeLoader is equivalent to eval(). The yaml.unsafe_load() function is explicitly dangerous. Always use yaml.safe_load() or yaml.load(data, Loader=yaml.SafeLoader)."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - python
+file_patterns:
+  - "*.py"
+patterns:
+  - "yaml\\.load\\s*\\([^)]*Loader\\s*=\\s*yaml\\.Loader"
+  - "yaml\\.load\\s*\\([^)]*Loader\\s*=\\s*yaml\\.UnsafeLoader"
+  - "yaml\\.load\\s*\\([^)]*Loader\\s*=\\s*yaml\\.FullLoader"
+  - "yaml\\.unsafe_load\\s*\\("
+negation: false
+case_insensitive: false
+message: "Unsafe YAML loading detected. yaml.load() with Loader, UnsafeLoader, or FullLoader allows arbitrary Python object instantiation — equivalent to eval(). An attacker can craft YAML that executes shell commands."
+fix: |
+  Always use safe YAML loading:
+
+    # WRONG — arbitrary code execution:
+    data = yaml.load(content, Loader=yaml.Loader)
+    data = yaml.unsafe_load(content)
+
+    # RIGHT — safe loading:
+    data = yaml.safe_load(content)
+
+    # RIGHT — explicit SafeLoader:
+    data = yaml.load(content, Loader=yaml.SafeLoader)
+
+  yaml.safe_load() only supports basic YAML types (strings, numbers, lists, dicts).

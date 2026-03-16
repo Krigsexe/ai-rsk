@@ -7,7 +7,7 @@ use std::process::Command;
 /// These 3 are ALWAYS required regardless of ecosystem.
 /// Ecosystem-specific tools are added on top.
 pub fn get_required_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
-    let tools = vec![
+    let mut tools = vec![
         ExternalTool {
             name: "semgrep".to_string(),
             binary: "semgrep".to_string(),
@@ -20,7 +20,12 @@ pub fn get_required_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
                 vec!["pip3".into(), "install".into(), "--user".into(), "semgrep".into()],
                 vec!["brew".into(), "install".into(), "semgrep".into()],
             ],
-            update_command: Some(vec!["pipx".into(), "upgrade".into(), "semgrep".into()]),
+            update_commands: vec![
+                vec!["pipx".into(), "upgrade".into(), "semgrep".into()],
+                vec!["pip".into(), "install".into(), "--upgrade".into(), "semgrep".into()],
+                vec!["pip3".into(), "install".into(), "--upgrade".into(), "semgrep".into()],
+                vec!["brew".into(), "upgrade".into(), "semgrep".into()],
+            ],
             github_release: None, // Semgrep is Python-based, no single binary release
         },
         ExternalTool {
@@ -32,7 +37,10 @@ pub fn get_required_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
                 vec!["brew".into(), "install".into(), "gitleaks".into()],
                 vec!["go".into(), "install".into(), "github.com/gitleaks/gitleaks/v8@latest".into()],
             ],
-            update_command: Some(vec!["brew".into(), "upgrade".into(), "gitleaks".into()]),
+            update_commands: vec![
+                vec!["brew".into(), "upgrade".into(), "gitleaks".into()],
+                vec!["go".into(), "install".into(), "github.com/gitleaks/gitleaks/v8@latest".into()],
+            ],
             github_release: Some((
                 "gitleaks/gitleaks".into(),
                 "gitleaks_{version}_{os}_{arch}.tar.gz".into(),
@@ -42,12 +50,15 @@ pub fn get_required_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
             name: "osv-scanner".to_string(),
             binary: "osv-scanner".to_string(),
             required: true,
-            install_hint: "go install github.com/google/osv-scanner/cmd/osv-scanner@latest  OR  brew install osv-scanner".to_string(),
+            install_hint: "go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest  OR  brew install osv-scanner".to_string(),
             install_commands: vec![
-                vec!["go".into(), "install".into(), "github.com/google/osv-scanner/cmd/osv-scanner@latest".into()],
+                vec!["go".into(), "install".into(), "github.com/google/osv-scanner/v2/cmd/osv-scanner@latest".into()],
                 vec!["brew".into(), "install".into(), "osv-scanner".into()],
             ],
-            update_command: Some(vec!["go".into(), "install".into(), "github.com/google/osv-scanner/cmd/osv-scanner@latest".into()]),
+            update_commands: vec![
+                vec!["go".into(), "install".into(), "github.com/google/osv-scanner/v2/cmd/osv-scanner@latest".into()],
+                vec!["brew".into(), "upgrade".into(), "osv-scanner".into()],
+            ],
             github_release: Some((
                 "google/osv-scanner".into(),
                 "osv-scanner_{os}_{arch}".into(),
@@ -55,10 +66,28 @@ pub fn get_required_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
         },
     ];
 
-    // No ecosystem-specific required tools - Semgrep covers eslint-plugin-security,
-    // bandit (Python), and gosec (Go) via its multi-language SAST with taint analysis.
-    // This avoids forcing users to install redundant tools.
-    let _ = ecosystems;
+    // Ecosystem-specific required tools
+    if ecosystems.contains(&Ecosystem::JavaScript) {
+        tools.push(ExternalTool {
+            name: "knip".to_string(),
+            binary: "knip".to_string(),
+            required: true,
+            install_hint: "npm install -g knip  OR  npm install -D knip (in your project)"
+                .to_string(),
+            install_commands: vec![
+                vec!["npm".into(), "install".into(), "-g".into(), "knip".into()],
+                vec!["pnpm".into(), "add".into(), "-g".into(), "knip".into()],
+                vec!["bun".into(), "add".into(), "-g".into(), "knip".into()],
+            ],
+            update_commands: vec![vec![
+                "npm".into(),
+                "update".into(),
+                "-g".into(),
+                "knip".into(),
+            ]],
+            github_release: None,
+        });
+    }
 
     tools
 }
@@ -72,22 +101,14 @@ pub fn get_recommended_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
         required: false,
         install_hint: "cargo install --git https://github.com/rtk-ai/rtk".to_string(),
         install_commands: vec![],
-        update_command: None,
+        update_commands: vec![],
         github_release: None,
     }];
 
     for eco in ecosystems {
         match eco {
             Ecosystem::JavaScript => {
-                tools.push(ExternalTool {
-                    name: "knip".to_string(),
-                    binary: "knip".to_string(),
-                    required: false,
-                    install_hint: "npm install -D knip".to_string(),
-                    install_commands: vec![],
-                    update_command: None,
-                    github_release: None,
-                });
+                // knip is now required (moved to get_required_tools)
             }
             Ecosystem::Rust => {
                 tools.push(ExternalTool {
@@ -96,7 +117,7 @@ pub fn get_recommended_tools(ecosystems: &[Ecosystem]) -> Vec<ExternalTool> {
                     required: false,
                     install_hint: "cargo install cargo-audit".to_string(),
                     install_commands: vec![],
-                    update_command: None,
+                    update_commands: vec![],
                     github_release: None,
                 });
             }
@@ -641,44 +662,58 @@ pub fn auto_install_tool(tool: &ExternalTool) -> bool {
 }
 
 /// Attempt to auto-update an already installed tool to the latest version.
-/// Returns true if update command ran successfully.
+/// Tries each update command in order until one succeeds.
+/// This handles the case where the tool was installed via different package managers
+/// (e.g., semgrep via pip vs pipx vs brew).
+/// Returns true if any update command ran successfully.
 pub fn auto_update_tool(tool: &ExternalTool) -> bool {
-    let update_cmd = match &tool.update_command {
-        Some(cmd) if !cmd.is_empty() => cmd,
-        _ => return false,
-    };
-
-    let binary = &update_cmd[0];
-    let args: Vec<&str> = update_cmd[1..].iter().map(|s| s.as_str()).collect();
-
-    // Check if the updater binary exists
-    if which::which(binary).is_err() {
+    if tool.update_commands.is_empty() {
         return false;
     }
 
     eprintln!("  {} Updating {}...", "→".cyan(), tool.name);
 
-    let result = Command::new(binary)
-        .args(&args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .status();
+    for cmd in &tool.update_commands {
+        if cmd.is_empty() {
+            continue;
+        }
 
-    match result {
-        Ok(status) if status.success() => {
+        let binary = &cmd[0];
+        let args: Vec<&str> = cmd[1..].iter().map(|s| s.as_str()).collect();
+
+        // Check if the updater binary exists
+        if which::which(binary).is_err() {
+            continue;
+        }
+
+        let result = Command::new(binary)
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .status();
+
+        if let Ok(status) = result
+            && status.success()
+        {
             let new_version = get_tool_version(&tool.binary).unwrap_or_else(|| "unknown".into());
             eprintln!("  {} {} updated ({})", "✓".green(), tool.name, new_version);
-            true
-        }
-        _ => {
-            eprintln!(
-                "  {} {} update failed - continuing with current version.",
-                "!".yellow(),
-                tool.name
-            );
-            false
+            return true;
         }
     }
+
+    // All package manager commands failed — try GitHub Release as last resort
+    // This handles the case where the tool was installed via direct binary download
+    if tool.github_release.is_some() && install_from_github_release(tool) {
+        return true;
+    }
+
+    // All update methods failed — not a critical error, continue with current version
+    eprintln!(
+        "  {} {} update failed - continuing with current version.",
+        "!".yellow(),
+        tool.name
+    );
+    false
 }
 
 #[cfg(test)]
@@ -696,28 +731,29 @@ mod tests {
     }
 
     #[test]
-    fn test_no_ecosystem_specific_required() {
-        // Semgrep covers eslint-plugin-security, bandit, gosec - no extra required tools per ecosystem
-        for eco in &[
-            Ecosystem::JavaScript,
-            Ecosystem::Python,
-            Ecosystem::Go,
-            Ecosystem::Rust,
-        ] {
+    fn test_ecosystem_specific_required() {
+        // JS/TS: 3 universal + knip = 4
+        let js_tools = get_required_tools(&[Ecosystem::JavaScript]);
+        assert_eq!(js_tools.len(), 4);
+        assert!(js_tools.iter().any(|t| t.name == "knip"));
+
+        // Non-JS: 3 universal only
+        for eco in &[Ecosystem::Python, Ecosystem::Go, Ecosystem::Rust] {
             let tools = get_required_tools(&[*eco]);
             assert_eq!(
                 tools.len(),
                 3,
-                "Ecosystem {:?} should only have the 3 universal tools",
+                "Ecosystem {:?} should have 3 required tools",
                 eco
             );
         }
     }
 
     #[test]
-    fn test_multi_ecosystem_still_3() {
+    fn test_multi_ecosystem_with_js() {
         let tools = get_required_tools(&[Ecosystem::JavaScript, Ecosystem::Python, Ecosystem::Go]);
-        assert_eq!(tools.len(), 3); // Only the 3 universals regardless of ecosystems
+        assert_eq!(tools.len(), 4); // 3 universal + knip (JS detected)
+        assert!(tools.iter().any(|t| t.name == "knip"));
     }
 
     #[test]
@@ -728,10 +764,11 @@ mod tests {
     }
 
     #[test]
-    fn test_recommended_javascript_has_knip() {
+    fn test_recommended_javascript_no_knip() {
+        // knip is now required, not recommended
         let tools = get_recommended_tools(&[Ecosystem::JavaScript]);
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        assert!(names.contains(&"knip"));
+        assert!(!names.contains(&"knip"));
     }
 
     #[test]
@@ -804,7 +841,7 @@ mod tests {
             required: true,
             install_hint: "impossible".to_string(),
             install_commands: vec![],
-            update_command: None,
+            update_commands: vec![],
             github_release: None,
         };
         assert_eq!(check_tool(&tool), ToolStatus::Missing);

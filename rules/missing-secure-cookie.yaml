@@ -20,6 +20,7 @@ patterns:
   - '\.cookie\s*\('
 negation: true
 negation_pattern: 'secure\s*:\s*true'
+agnostic_negation: false
 case_insensitive: false
 message: "Cookie set without Secure flag. The cookie will be sent over unencrypted HTTP, exposing it to interception."
 fix: |

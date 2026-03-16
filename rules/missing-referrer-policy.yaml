@@ -1,0 +1,38 @@
+id: MISSING_REFERRER_POLICY
+version: 1
+severity: WARN
+cwe:
+  - "CWE-200"
+source:
+  name: "OWASP Secure Headers Project + MDN Referer header privacy"
+  quote: "The Referrer-Policy HTTP header controls how much referrer information should be included with requests. Insecure values (unsafe-url, no-referrer-when-downgrade) leak origin, path, and query string to third parties."
+  note: "OWASP recommends strict-origin-when-cross-origin or no-referrer. Default browser behavior changed in 2020 but explicit header is still recommended for defense in depth. Particularly important for GDPR compliance as referrer URLs can contain PII (search queries, user IDs, session tokens in URLs)."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  - "(app|server|router)\\.(use|get|listen)\\s*\\("
+negation: true
+negation_pattern: "referrer-policy|referrerPolicy|Referrer-Policy|helmet\\s*\\("
+case_insensitive: true
+message: "Server code detected without Referrer-Policy header. Without this header, the browser may leak full URLs (including query parameters, user IDs, and session tokens) to third-party sites via the Referer header. OWASP recommends strict-origin-when-cross-origin or no-referrer."
+fix: |
+  Add Referrer-Policy header. Using helmet (recommended):
+    app.use(helmet());
+  Or manually:
+    app.use((req, res, next) => {
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      next();
+    });
+  Values from most to least restrictive:
+    - no-referrer (safest, but may break analytics)
+    - strict-origin-when-cross-origin (recommended default)
+    - same-origin (only send referrer to same origin)
+  NEVER use: unsafe-url or no-referrer-when-downgrade.

@@ -1,0 +1,61 @@
+id: SQL_INJECTION_CONCAT
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-89"
+source:
+  name: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+  quote: "The product constructs all or part of an SQL command using externally-influenced input from an upstream component, but it does not neutralize or incorrectly neutralizes special elements that could modify the intended SQL command."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+  - python
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+  - "*.py"
+patterns:
+  # String concatenation in SQL queries (JS/TS)
+  - "['\"`]SELECT\\s.*['\"`]\\s*\\+"
+  - "['\"`]INSERT\\s.*['\"`]\\s*\\+"
+  - "['\"`]UPDATE\\s.*['\"`]\\s*\\+"
+  - "['\"`]DELETE\\s.*['\"`]\\s*\\+"
+  # Template literal SQL with interpolation
+  - "`SELECT\\s[^`]*\\$\\{"
+  - "`INSERT\\s[^`]*\\$\\{"
+  - "`UPDATE\\s[^`]*\\$\\{"
+  - "`DELETE\\s[^`]*\\$\\{"
+  # Python f-string SQL
+  - "f['\"]SELECT\\s.*\\{"
+  - "f['\"]INSERT\\s.*\\{"
+  - "f['\"]UPDATE\\s.*\\{"
+  - "f['\"]DELETE\\s.*\\{"
+case_insensitive: true
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+  - "migrations/"
+  - "seeds/"
+message: "SQL query built with string concatenation or template literals. An attacker can inject arbitrary SQL through any user-controlled value in the string. SQL injection is CWE #2 globally and the most common vulnerability in AI-generated code."
+fix: |
+  Use parameterized queries instead of string concatenation:
+    // WRONG - SQL injection:
+    db.query("SELECT * FROM users WHERE id = " + userId);
+    db.query(`SELECT * FROM users WHERE id = ${userId}`);
+
+    // RIGHT - parameterized:
+    db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    db.query("SELECT * FROM users WHERE id = ?", [userId]);
+
+    // RIGHT - ORM:
+    User.findByPk(userId);
+    prisma.user.findUnique({ where: { id: userId } });
+
+  NEVER concatenate user input into SQL strings. Use parameterized queries or an ORM.

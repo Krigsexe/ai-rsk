@@ -1,0 +1,59 @@
+id: SYSTEM_PROMPT_CLIENT_EXPOSED
+version: 1
+severity: BLOCK
+category: ai-act
+cwe:
+  - "CWE-200"
+source:
+  name: "EU AI Act + OWASP LLM Top 10:2025 — LLM01 Prompt Injection"
+  quote: "System prompts contain business logic, behavioral constraints, and potentially sensitive instructions. Exposing them to the client enables prompt injection attacks and reverse-engineering of AI behavior."
+  note: "OWASP LLM Top 10:2025 lists prompt injection as #1 risk. System prompts leaked to frontend allow attackers to craft targeted jailbreaks. EU AI Act requires providers to protect the integrity and security of AI systems."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # System prompt stored in client-accessible code (word boundary to avoid matching settings_system_prompt etc.)
+  - "\\bsystem[_-]?[Pp]rompt\\s*[=:]\\s*['\"`]"
+  - "\\bSYSTEM[_-]?PROMPT\\s*[=:]\\s*['\"`]"
+  # System role message constructed in frontend code
+  - "role\\s*:\\s*['\"]system['\"]\\s*,\\s*content\\s*:"
+exclude_paths:
+  - "server/"
+  - "api/"
+  - "backend/"
+  - "lib/"
+  - "services/"
+  - "utils/"
+  - "translations/"
+  - "locales/"
+  - "i18n/"
+  - "lang/"
+negation: false
+case_insensitive: false
+message: "System prompt appears to be defined in client-accessible code. System prompts contain business logic and behavioral constraints — exposing them enables prompt injection attacks and reverse-engineering. OWASP LLM Top 10:2025 lists prompt injection as the #1 risk for LLM applications."
+fix: |
+  Move system prompts to the server side ONLY:
+
+    // WRONG — system prompt in frontend code:
+    const systemPrompt = "You are a helpful assistant that...";
+    const response = await fetch('/api/chat', {
+      body: JSON.stringify({ messages: [{ role: 'system', content: systemPrompt }] })
+    });
+
+    // RIGHT — system prompt stays on the server:
+    // Server-side (api/chat.js):
+    const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || "You are...";
+    const response = await openai.chat.completions.create({
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...userMessages]
+    });
+
+  NEVER send the system prompt to the client. NEVER include it in API responses.

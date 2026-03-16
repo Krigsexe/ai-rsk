@@ -1,0 +1,35 @@
+id: TEXT_TEMPLATE_HTML
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-79"
+source:
+  name: "CWE-79: Cross-site Scripting (XSS) — Go text/template"
+  quote: "Go's text/template package does NOT escape HTML. Using it to render HTML allows XSS attacks. Always use html/template for HTML output."
+  note: "This is a common mistake in Go web applications. text/template is for plain text (emails, configs). html/template auto-escapes HTML, JS, CSS, and URL contexts. Semgrep also catches this but ai-rsk provides immediate feedback."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - go
+file_patterns:
+  - "*.go"
+patterns:
+  - "\"text/template\""
+negation: true
+negation_pattern: "\"html/template\""
+agnostic_negation: false
+case_insensitive: false
+message: "Go text/template imported — this package does NOT escape HTML output. If used to render web pages, it enables XSS attacks. Use html/template instead, which auto-escapes HTML, JavaScript, CSS, and URL contexts."
+fix: |
+  Replace text/template with html/template for any HTML rendering:
+
+    // WRONG — no HTML escaping, XSS vulnerable:
+    import "text/template"
+    tmpl, _ := template.New("page").Parse("<h1>{{.Title}}</h1>")
+
+    // RIGHT — auto-escapes all HTML contexts:
+    import "html/template"
+    tmpl, _ := template.New("page").Parse("<h1>{{.Title}}</h1>")
+
+  text/template is fine for non-HTML output (emails, plain text, config files).

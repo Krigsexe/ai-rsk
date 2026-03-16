@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- VULNERABLE: GTM loaded without consent mechanism -->
+  <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXX"></script>
+
+  <!-- VULNERABLE: Hotjar loaded unconditionally -->
+  <script>
+    (function(h,o,t,j,a,r){
+      h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
+      h._hjSettings={hjid:123456,hjsv:6};
+      a=o.getElementsByTagName('head')[0];
+      r=o.createElement('script');r.async=1;
+      r.src='https://static.hotjar.com/c/hotjar-123456.js?sv=6';
+      a.appendChild(r);
+    })(window,document);
+    hj('trigger', 'page_loaded');
+  </script>
+
+  <!-- VULNERABLE: Google Analytics classic without consent -->
+  <script>
+    window.GoogleAnalyticsObject = 'ga';
+  </script>
+</head>
+<body></body>
+</html>

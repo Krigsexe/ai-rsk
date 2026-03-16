@@ -33,6 +33,30 @@ pub enum Commands {
         /// Output results as JSON (for CI/CD integration and programmatic consumption)
         #[arg(long)]
         json: bool,
+
+        /// Enable GDPR/RGPD compliance checks (cookies, consent, privacy)
+        #[arg(long)]
+        gdpr: bool,
+
+        /// Enable SEO checks (robots.txt, meta tags, sitemap)
+        #[arg(long)]
+        seo: bool,
+
+        /// Enable accessibility checks (WCAG 2.2, alt text, lang)
+        #[arg(long)]
+        a11y: bool,
+
+        /// Enable EU AI Act compliance checks (labeling, transparency)
+        #[arg(long)]
+        ai_act: bool,
+
+        /// Enable ALL compliance profiles (security + gdpr + ai-act + seo + a11y)
+        #[arg(long)]
+        all: bool,
+
+        /// Environment mode: development or production (filters mode-specific rules)
+        #[arg(long)]
+        mode: Option<String>,
     },
 
     /// Initialize ai-rsk in the current project (generate config, hooks, LLM rules)
@@ -66,11 +90,23 @@ mod tests {
                     strict,
                     full,
                     json,
+                    gdpr,
+                    seo,
+                    a11y,
+                    ai_act,
+                    all,
+                    mode,
                 } => {
                     assert_eq!(path, PathBuf::from("."));
                     assert!(!strict);
                     assert!(!full);
                     assert!(!json);
+                    assert!(!gdpr);
+                    assert!(!seo);
+                    assert!(!a11y);
+                    assert!(!ai_act);
+                    assert!(!all);
+                    assert!(mode.is_none());
                 }
                 _ => panic!("Expected Scan command"),
             }

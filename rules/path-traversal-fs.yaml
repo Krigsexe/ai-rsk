@@ -1,0 +1,62 @@
+id: PATH_TRAVERSAL_FS
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-22"
+source:
+  name: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+  quote: "The product uses external input to construct a pathname that is intended to identify a file or directory that is located underneath a restricted parent directory, but the product does not properly neutralize special elements within the pathname."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # fs operations with user-controlled path from req.params/query/body
+  - "fs\\.readFile(Sync)?\\s*\\(.*req\\.(params|query|body)"
+  - "fs\\.writeFile(Sync)?\\s*\\(.*req\\.(params|query|body)"
+  - "fs\\.createReadStream\\s*\\(.*req\\.(params|query|body)"
+  - "fs\\.unlink(Sync)?\\s*\\(.*req\\.(params|query|body)"
+  - "fs\\.stat(Sync)?\\s*\\(.*req\\.(params|query|body)"
+  # path.join with user input without validation
+  - "path\\.join\\s*\\(.*req\\.(params|query|body)"
+  - "path\\.resolve\\s*\\(.*req\\.(params|query|body)"
+negation: true
+negation_pattern: "sanitize|whitelist|allowedPaths|safePath|validatePath|path\\.basename\\s*\\(|replace\\s*\\(.*\\.\\."
+case_insensitive: false
+agnostic_negation: false
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+message: "File system operation with user-controlled path detected. An attacker can use '../' sequences to escape the intended directory and read/write/delete arbitrary files on the server (e.g., /etc/passwd, .env, database files)."
+fix: |
+  ALWAYS validate and sanitize file paths from user input:
+    // WRONG - path traversal:
+    const file = req.params.filename;
+    fs.readFile(path.join('/uploads', file), ...);
+
+    // RIGHT - use path.basename to strip directory traversal:
+    const file = path.basename(req.params.filename);
+    fs.readFile(path.join('/uploads', file), ...);
+
+    // RIGHT - validate against allowed list:
+    const allowed = ['report.pdf', 'invoice.pdf'];
+    if (!allowed.includes(req.params.filename)) {
+      return res.status(403).json({ error: 'File not allowed' });
+    }
+
+    // RIGHT - resolve and verify the path stays within bounds:
+    const resolved = path.resolve('/uploads', req.params.filename);
+    if (!resolved.startsWith('/uploads/')) {
+      return res.status(403).json({ error: 'Path traversal detected' });
+    }
+
+  NEVER pass user input directly to fs operations without path validation.

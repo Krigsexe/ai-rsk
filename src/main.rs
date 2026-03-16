@@ -31,18 +31,32 @@ fn run() -> Result<()> {
             strict,
             full,
             json,
+            gdpr,
+            seo,
+            a11y,
+            ai_act,
+            all,
+            mode,
         } => {
             let path = path.canonicalize().unwrap_or(path);
 
             // Step 0: LOAD config
             let config = config::Config::load(&path)?;
 
+            // Resolve active profiles and mode from config + CLI flags
+            let active_profiles = config.resolve_profiles(gdpr, seo, a11y, ai_act, all);
+            let active_mode = config.resolve_mode(&mode);
+
             // Step 1: DETECT ecosystems
             let ecosystems = detect::detect_ecosystems(&path);
             if !json {
                 println!(
                     "{}\n",
-                    "ai-rsk v0.1.0 - Security Gate + Project Analysis".bold()
+                    format!(
+                        "ai-rsk v{} - Security Gate + Project Analysis",
+                        env!("CARGO_PKG_VERSION")
+                    )
+                    .bold()
                 );
                 println!(
                     "{}",
@@ -55,6 +69,14 @@ fn run() -> Result<()> {
                 }
                 if !config.exclude.is_empty() {
                     println!("  Config: {} extra exclusions", config.exclude.len());
+                }
+
+                // Show active profiles if non-default
+                if active_profiles.len() > 1 || active_profiles.iter().any(|p| p != "security") {
+                    println!("  Profiles: {}", active_profiles.join(", ").cyan());
+                }
+                if let Some(ref m) = active_mode {
+                    println!("  Mode: {}", m.cyan());
                 }
 
                 if ecosystems.is_empty() {
@@ -217,8 +239,12 @@ fn run() -> Result<()> {
                 if !json {
                     println!("\n  {}", "Running external tools...".dimmed());
                 }
-                let tool_findings =
-                    runner::run_external_tools(&path, &ecosystems, config.tool_timeout_seconds);
+                let tool_findings = runner::run_external_tools(
+                    &path,
+                    &ecosystems,
+                    config.tool_timeout_seconds,
+                    &config.semgrep_exclude_rules,
+                );
                 result.findings.extend(tool_findings);
             }
 
@@ -226,10 +252,18 @@ fn run() -> Result<()> {
             let rules_dir = rules::find_rules_dir(&path);
             match rules::load_rules(&rules_dir) {
                 Ok(loaded_rules) => {
-                    // Filter out disabled rules from config
+                    // Filter rules: disabled by config, category not in active profiles, mode mismatch
                     let active_rules: Vec<_> = loaded_rules
                         .into_iter()
                         .filter(|r| !config.is_rule_disabled(&r.id))
+                        .filter(|r| active_profiles.iter().any(|p| p == &r.category))
+                        .filter(|r| match &r.mode {
+                            None => true, // No mode constraint = always active
+                            Some(rule_mode) => match &active_mode {
+                                None => true, // No active mode set = all rules active
+                                Some(am) => rule_mode == am,
+                            },
+                        })
                         .collect();
 
                     let disabled_count = config.disabled_rules.len();
@@ -293,7 +327,7 @@ fn run() -> Result<()> {
             if !json {
                 println!("\n  {}", "Analyzing project structure...".dimmed());
             }
-            let analysis_findings = analyze::analyze_project(&path, &ecosystems);
+            let analysis_findings = analyze::analyze_project(&path, &ecosystems, &active_profiles);
             let analysis_count = analysis_findings.len();
             result.findings.extend(analysis_findings);
             if !json {
@@ -325,7 +359,11 @@ fn run() -> Result<()> {
                     e
                 );
             } else if !json {
-                println!("\n  {} Report written to .ai-rsk/report.md", "→".cyan());
+                println!(
+                    "\n  {} {}",
+                    "→".cyan(),
+                    "Report written to .ai-rsk/report.md — READ THIS FILE BEFORE CODING".bold()
+                );
             }
 
             if json {

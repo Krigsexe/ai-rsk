@@ -1,0 +1,46 @@
+id: JWT_NO_EXPIRY
+version: 1
+severity: WARN
+category: security
+cwe:
+  - "CWE-613"
+source:
+  name: "CWE-613: Insufficient Session Expiration"
+  quote: "According to WASC, Insufficient Session Expiration is when a web site permits an attacker to reuse old session credentials or session IDs for authorization."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  - "jwt\\.sign\\s*\\("
+negation: true
+negation_pattern: "expiresIn|exp\\s*:|expiresAt|maxAge"
+case_insensitive: false
+agnostic_negation: false
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+message: "JWT signed without expiration. A JWT without expiresIn or exp claim is valid forever. If stolen, an attacker has permanent access. Tokens must have short lifetimes (15 minutes for access tokens, hours/days for refresh tokens)."
+fix: |
+  ALWAYS set an expiration on JWT tokens:
+    // WRONG - token valid forever:
+    const token = jwt.sign({ userId: user.id }, secret);
+
+    // RIGHT - token expires in 15 minutes:
+    const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '15m' });
+
+    // RIGHT - refresh token expires in 7 days:
+    const refreshToken = jwt.sign({ userId: user.id }, refreshSecret, { expiresIn: '7d' });
+
+  Recommended lifetimes:
+    - Access tokens: 5-15 minutes
+    - Refresh tokens: 1-7 days (with rotation)
+    - Password reset tokens: 15-60 minutes

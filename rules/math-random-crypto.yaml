@@ -1,0 +1,52 @@
+id: MATH_RANDOM_CRYPTO
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-338"
+source:
+  name: "CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)"
+  quote: "The product uses a Pseudo-Random Number Generator (PRNG) in a security context, but the PRNG's algorithm is not cryptographically strong."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # Math.random() used to generate security-sensitive values
+  # Match: variable assignment where the name suggests security use
+  - "(token|secret|key|nonce|salt|otp|code|session.?id|csrf|reset.?token|verify.?code|api.?key|auth.?code)\\s*=.*Math\\.random"
+  - "Math\\.random.*\\b(token|secret|key|nonce|salt|otp|session.?id|csrf|reset.?token|verify.?code|api.?key)\\b"
+  # Math.random() inside functions whose name suggests security use
+  - "function\\s+(generate|create|make).*(Token|Secret|Key|Nonce|Salt|OTP|Code|Session|Password|Hash|Id).*\\{[^}]*Math\\.random"
+case_insensitive: true
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+message: "Math.random() used in a security-sensitive context. Math.random() is NOT cryptographically secure - its output is predictable. An attacker can guess tokens, OTPs, session IDs, or reset codes generated with Math.random()."
+fix: |
+  Use cryptographically secure alternatives:
+    // WRONG:
+    const token = Math.random().toString(36);
+    const otp = Math.floor(Math.random() * 1000000);
+
+    // RIGHT - Node.js:
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const otp = crypto.randomInt(100000, 999999);
+
+    // RIGHT - Browser:
+    const token = crypto.randomUUID();
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+
+  NEVER use Math.random() for: tokens, session IDs, OTPs, API keys, CSRF tokens, password reset codes, nonces, salts, or any security-sensitive value.

@@ -32,6 +32,27 @@ pub struct Config {
     /// Rules to disable, with mandatory justification.
     #[serde(default)]
     pub disabled_rules: Vec<DisabledRule>,
+
+    /// Active compliance profiles. Default: ["security"].
+    /// Available: "security", "gdpr", "ai-act", "seo", "a11y".
+    /// Rules with a category not in this list are skipped.
+    #[serde(default = "default_profiles")]
+    pub profiles: Vec<String>,
+
+    /// Environment mode. Filters rules that have a mode constraint.
+    /// Values: "development", "production". None = no filtering (all rules active).
+    #[serde(default)]
+    pub mode: Option<String>,
+
+    /// Region hint. "eu" automatically activates the "gdpr" profile.
+    #[serde(default)]
+    pub region: Option<String>,
+
+    /// Semgrep rules to exclude from scanning.
+    /// Use this to suppress known false positives from Semgrep's community rules.
+    /// Example: ["html.security.audit.missing-integrity.missing-integrity"]
+    #[serde(default)]
+    pub semgrep_exclude_rules: Vec<String>,
 }
 
 /// A rule disabled in the config, with mandatory justification.
@@ -46,6 +67,10 @@ fn default_tool_timeout() -> u64 {
     120
 }
 
+fn default_profiles() -> Vec<String> {
+    vec!["security".to_string()]
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -54,7 +79,72 @@ impl Default for Config {
             tool_timeout_seconds: default_tool_timeout(),
             min_versions: HashMap::new(),
             disabled_rules: Vec::new(),
+            profiles: default_profiles(),
+            mode: None,
+            region: None,
+            semgrep_exclude_rules: Vec::new(),
         }
+    }
+}
+
+impl Config {
+    /// Resolve the effective list of active profiles, merging config + CLI overrides.
+    /// - "security" is always included.
+    /// - region: "eu" adds "gdpr" automatically.
+    /// - CLI flags (gdpr, seo, a11y, ai_act) add their respective profiles.
+    /// - CLI flag "all" activates every profile.
+    pub fn resolve_profiles(
+        &self,
+        cli_gdpr: bool,
+        cli_seo: bool,
+        cli_a11y: bool,
+        cli_ai_act: bool,
+        cli_all: bool,
+    ) -> Vec<String> {
+        if cli_all {
+            return vec![
+                "security".to_string(),
+                "gdpr".to_string(),
+                "ai-act".to_string(),
+                "seo".to_string(),
+                "a11y".to_string(),
+            ];
+        }
+
+        let mut profiles: Vec<String> = self.profiles.clone();
+
+        // Ensure "security" is always present
+        if !profiles.iter().any(|p| p == "security") {
+            profiles.insert(0, "security".to_string());
+        }
+
+        // region: "eu" implies gdpr
+        if let Some(ref region) = self.region {
+            if region.eq_ignore_ascii_case("eu") && !profiles.iter().any(|p| p == "gdpr") {
+                profiles.push("gdpr".to_string());
+            }
+        }
+
+        // CLI flags override
+        if cli_gdpr && !profiles.iter().any(|p| p == "gdpr") {
+            profiles.push("gdpr".to_string());
+        }
+        if cli_seo && !profiles.iter().any(|p| p == "seo") {
+            profiles.push("seo".to_string());
+        }
+        if cli_a11y && !profiles.iter().any(|p| p == "a11y") {
+            profiles.push("a11y".to_string());
+        }
+        if cli_ai_act && !profiles.iter().any(|p| p == "ai-act") {
+            profiles.push("ai-act".to_string());
+        }
+
+        profiles
+    }
+
+    /// Resolve the effective mode, with CLI override taking precedence over config.
+    pub fn resolve_mode(&self, cli_mode: &Option<String>) -> Option<String> {
+        cli_mode.clone().or_else(|| self.mode.clone())
     }
 }
 

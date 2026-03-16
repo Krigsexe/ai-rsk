@@ -1,0 +1,41 @@
+id: PICKLE_LOAD
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-502"
+source:
+  name: "CWE-502: Deserialization of Untrusted Data"
+  quote: "The product deserializes untrusted data without sufficiently verifying that the resulting data will be valid."
+  note: "pickle.load() executes arbitrary Python code embedded in the pickled data. An attacker can craft a pickle payload that runs shell commands, installs backdoors, or exfiltrates data. This is the #1 Python deserialization vulnerability. NEVER use pickle with untrusted input."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - python
+file_patterns:
+  - "*.py"
+patterns:
+  - "pickle\\.load\\s*\\("
+  - "pickle\\.loads\\s*\\("
+  - "cPickle\\.load\\s*\\("
+  - "cPickle\\.loads\\s*\\("
+  - "shelve\\.open\\s*\\("
+negation: false
+case_insensitive: false
+message: "pickle.load() or pickle.loads() detected. Pickle deserialization executes arbitrary Python code — an attacker can craft a payload that runs shell commands, installs backdoors, or exfiltrates data. This is the #1 Python deserialization vulnerability."
+fix: |
+  Use safe serialization formats instead of pickle:
+
+    # WRONG — arbitrary code execution:
+    data = pickle.load(open('data.pkl', 'rb'))
+
+    # RIGHT — use JSON for structured data:
+    import json
+    data = json.load(open('data.json'))
+
+    # RIGHT — use MessagePack for binary data:
+    import msgpack
+    data = msgpack.unpackb(raw_bytes, raw=False)
+
+  If you MUST use pickle (e.g., ML models), verify the source is trusted
+  and consider using torch.load(weights_only=True) for PyTorch models.

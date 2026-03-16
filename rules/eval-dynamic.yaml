@@ -11,7 +11,6 @@ source:
 languages:
   - javascript
   - typescript
-  - python
 file_patterns:
   - "*.js"
   - "*.ts"
@@ -19,26 +18,21 @@ file_patterns:
   - "*.tsx"
   - "*.mjs"
   - "*.cjs"
-  - "*.py"
 patterns:
   # eval() with any variable (not a static string)
-  - "eval\\s*\\(\\s*[a-zA-Z_]"
-  - "eval\\s*\\(\\s*`"
-  - "eval\\s*\\(\\s*\\$"
+  # \b ensures we match the word "eval", not "retrieval", "evaluate", etc.
+  - "\\beval\\s*\\(\\s*[a-zA-Z_]"
+  - "\\beval\\s*\\(\\s*`"
+  - "\\beval\\s*\\(\\s*\\$"
   # new Function() with variable
   - "new\\s+Function\\s*\\(.*[a-zA-Z_][a-zA-Z0-9_]*"
   # setTimeout/setInterval with string argument (acts as eval)
   - "setTimeout\\s*\\(\\s*['\"`][^'\"`]*[a-zA-Z_]"
   - "setInterval\\s*\\(\\s*['\"`][^'\"`]*[a-zA-Z_]"
-  # Python exec() with variable - standalone call, not a method call.
-  # Must NOT match JavaScript's RegExp.prototype.exec() or child_process .exec() method calls.
-  # Match only: exec(variable) at start of line or after whitespace/assignment/semicolon.
-  - "(?:^|[;=\\s(,])exec\\s*\\(\\s*[a-zA-Z_]"
   # Node.js child_process exec with variable (dangerous command injection)
   - "child_process.*exec\\s*\\("
   - "require\\s*\\(\\s*['\"]child_process['\"]\\s*\\).*exec\\s*\\("
-  - "\\bexec\\s*=.*promisify.*child_process"
-  - "eval\\s*\\(\\s*f['\"]"
+  - "\\bexec[a-zA-Z0-9_]*\\s*=.*promisify.*child_process"
 case_insensitive: false
 exclude_paths:
   - "test/"

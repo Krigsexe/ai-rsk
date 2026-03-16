@@ -1,6 +1,6 @@
 [package]
 name = "ai-rsk"
-version = "0.1.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["Julien GELEE <julien.gelee@proton.me>"]
 description = "Security gate for AI-generated code - blocks the build until vulnerabilities are fixed"
@@ -29,6 +29,10 @@ anyhow = "1.0"
 colored = "2"
 # Timestamps for scan reports
 chrono = "0.4"
+# Interactive CLI prompts for init command
+cliclack = "0.4"
+# Terminal utilities (measure ANSI text width, pad strings)
+console = "0.15"
 
 [dev-dependencies]
 # Temporary directories for tests

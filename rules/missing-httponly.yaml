@@ -21,6 +21,7 @@ patterns:
   - 'Set-Cookie'
 negation: true
 negation_pattern: 'httpOnly\s*:\s*true|HttpOnly'
+agnostic_negation: false
 case_insensitive: false
 message: "Cookie set without HttpOnly flag. JavaScript can access this cookie, making it vulnerable to XSS token theft."
 fix: |

@@ -1,0 +1,58 @@
+id: LLM_CALL_NO_AUDIT_LOG
+version: 1
+severity: WARN
+category: ai-act
+cwe:
+  - "CWE-778"
+source:
+  name: "EU AI Act — Traceability and record-keeping obligations"
+  quote: "Deployers must retain system logs and maintain comprehensive records tracking the operating contexts of AI systems. This enables reconstruction of decisions and auditing of compliance."
+  note: "EU AI Act requires audit trail for all AI system interactions. Logging must include: timestamp, model used, input/output tokens, user context. Without logging, you cannot demonstrate compliance during an audit."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+  - python
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+  - "*.py"
+patterns:
+  # OpenAI SDK calls
+  - "openai\\.(chat\\.completions|completions|embeddings)\\.create\\s*\\("
+  - "ChatCompletion\\.create\\s*\\("
+  # Anthropic SDK calls
+  - "anthropic\\.messages\\.create\\s*\\("
+  - "client\\.messages\\.create\\s*\\("
+  # Google Generative AI calls
+  - "model\\.generateContent\\s*\\("
+  - "generativeModel\\.generateContent\\s*\\("
+  # Generic LLM gateway patterns
+  - "llm\\.(generate|complete|chat)\\s*\\("
+negation: true
+negation_pattern: "audit[_-]?log|auditLog|log[_-]?llm|logLlm|ai[_-]?audit|aiAudit|usage[_-]?log|usageLog|track[_-]?usage|trackUsage|helicone|langfuse|langsmith|portkey|braintrust|promptlayer"
+case_insensitive: true
+message: "LLM API call detected without visible audit logging. Under the EU AI Act, deployers must maintain comprehensive logs of AI system interactions for traceability and compliance auditing. Without logging, you cannot demonstrate compliance during regulatory audits."
+fix: |
+  Add audit logging to all LLM API calls:
+
+    // Option 1: Use an LLM observability platform (recommended):
+    // Helicone, Langfuse, LangSmith, Portkey, BrainTrust, PromptLayer
+
+    // Option 2: Manual logging:
+    const response = await openai.chat.completions.create({...});
+    auditLog({
+      timestamp: new Date().toISOString(),
+      model: response.model,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      userId: req.user?.id,
+      endpoint: '/api/chat',
+    });
+
+  Log at minimum: timestamp, model, token usage, user context, endpoint.

@@ -1,0 +1,36 @@
+id: SUBPROCESS_SHELL
+version: 1
+severity: BLOCK
+category: security
+cwe:
+  - "CWE-78"
+source:
+  name: "CWE-78: OS Command Injection"
+  quote: "The product constructs all or part of an OS command using externally-influenced input without neutralizing special elements that could modify the intended command."
+  note: "subprocess with shell=True passes the command through the system shell, enabling command injection via semicolons, pipes, and backticks. CWE Top 25:2025 ranks OS command injection #5."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - python
+file_patterns:
+  - "*.py"
+patterns:
+  - "subprocess\\.(call|run|Popen|check_output|check_call)\\s*\\([^)]*shell\\s*=\\s*True"
+  - "os\\.system\\s*\\("
+  - "os\\.popen\\s*\\("
+negation: false
+case_insensitive: false
+message: "Shell command execution detected (subprocess with shell=True, os.system, or os.popen). This enables OS command injection — an attacker can append arbitrary commands via semicolons, pipes, or backticks in user input. CWE Top 25:2025 #5."
+fix: |
+  Use subprocess without shell=True and pass arguments as a list:
+
+    # WRONG — command injection possible:
+    subprocess.run(f"convert {filename}", shell=True)
+    os.system(f"rm {user_input}")
+
+    # RIGHT — no shell, arguments as list:
+    subprocess.run(["convert", filename])
+    subprocess.run(["rm", validated_path], check=True)
+
+  NEVER interpolate user input into shell commands.
+  Use shlex.quote() if you absolutely must construct shell strings (rare).

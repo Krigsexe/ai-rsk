@@ -10,6 +10,7 @@ const EXCLUDED_DIRS: &[&str] = &[
     ".git",
     "dist",
     "build",
+    "bundle",
     "out",
     "__pycache__",
     ".pytest_cache",
@@ -24,7 +25,12 @@ const EXCLUDED_DIRS: &[&str] = &[
 /// Run project analysis (couche 3) and return ADVISE findings.
 /// This analyzes the project structure, not the code itself.
 /// Every finding is based on file presence/absence - no guessing.
-pub fn analyze_project(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec<Finding> {
+/// `active_profiles` controls which compliance checks run (e.g., "gdpr" enables cookie/privacy checks).
+pub fn analyze_project(
+    project_path: &Path,
+    ecosystems: &[Ecosystem],
+    active_profiles: &[String],
+) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     // 1. Tests detection
@@ -36,7 +42,7 @@ pub fn analyze_project(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec<Fin
     // 3. Dead dependencies (JS only for now - factual, verified)
     // If knip is available, it handles dead code/deps detection (runner.rs runs it).
     // Our fallback detection only runs when knip is NOT installed.
-    if ecosystems.contains(&Ecosystem::JavaScript) && !crate::runner::knip_available() {
+    if ecosystems.contains(&Ecosystem::JavaScript) && !crate::runner::knip_available(project_path) {
         findings.extend(check_dead_deps_js(project_path));
     }
 
@@ -55,6 +61,25 @@ pub fn analyze_project(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec<Fin
 
     // 7. Tamper protection - detect if ai-rsk has been bypassed
     findings.extend(check_tamper_protection(project_path, ecosystems));
+
+    // 8. GDPR checks (only when gdpr profile is active)
+    if active_profiles.iter().any(|p| p == "gdpr") {
+        findings.extend(check_cookie_banner(project_path));
+        findings.extend(check_privacy_page(project_path));
+    }
+
+    // 9. SEO checks (only when seo profile is active)
+    if active_profiles.iter().any(|p| p == "seo") {
+        findings.extend(check_robots_txt(project_path));
+        findings.extend(check_sitemap(project_path));
+        findings.extend(check_meta_viewport(project_path));
+        findings.extend(check_canonical(project_path));
+    }
+
+    // 10. Infrastructure checks (always active)
+    findings.extend(check_lockfile(project_path, ecosystems));
+    findings.extend(check_env_gitignored(project_path));
+    findings.extend(check_dockerfile_root(project_path));
 
     findings
 }
@@ -781,6 +806,554 @@ fn check_tamper_protection(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec
     findings
 }
 
+/// Infra: Check if the project has a lockfile (package-lock.json, yarn.lock, pnpm-lock.yaml, etc.).
+/// Without a lockfile, dependency versions are non-deterministic across environments.
+fn check_lockfile(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec<Finding> {
+    let lockfiles: Vec<(&str, &[Ecosystem])> = vec![
+        ("package-lock.json", &[Ecosystem::JavaScript]),
+        ("yarn.lock", &[Ecosystem::JavaScript]),
+        ("pnpm-lock.yaml", &[Ecosystem::JavaScript]),
+        ("bun.lockb", &[Ecosystem::JavaScript]),
+        ("Cargo.lock", &[Ecosystem::Rust]),
+        ("go.sum", &[Ecosystem::Go]),
+        ("poetry.lock", &[Ecosystem::Python]),
+        ("Pipfile.lock", &[Ecosystem::Python]),
+        ("requirements.txt", &[Ecosystem::Python]),
+    ];
+
+    for (lockfile, applicable_ecosystems) in &lockfiles {
+        if applicable_ecosystems.iter().any(|e| ecosystems.contains(e))
+            && project_path.join(lockfile).exists()
+        {
+            return vec![];
+        }
+    }
+
+    // Only warn if an ecosystem that uses lockfiles is detected
+    let needs_lockfile = ecosystems.iter().any(|e| {
+        matches!(
+            e,
+            Ecosystem::JavaScript | Ecosystem::Rust | Ecosystem::Go | Ecosystem::Python
+        )
+    });
+
+    if !needs_lockfile {
+        return vec![];
+    }
+
+    vec![Finding {
+        severity: Severity::Warn,
+        kind: FindingKind::ProjectAdvice {
+            advice_id: "NO_LOCKFILE".to_string(),
+            question: "No dependency lockfile found. Without a lockfile, dependency versions are non-deterministic — different environments may install different versions, leading to \"works on my machine\" bugs and potential supply chain attacks. Run your package manager's install command to generate one.".to_string(),
+        },
+        file: None,
+        line: None,
+        message: "No dependency lockfile found — builds are non-deterministic.".to_string(),
+    }]
+}
+
+/// Infra: Check if .env is in .gitignore.
+/// .env files contain secrets (API keys, DB passwords) and must never be committed.
+fn check_env_gitignored(project_path: &Path) -> Vec<Finding> {
+    // Only check if .env exists
+    if !project_path.join(".env").exists() {
+        return vec![];
+    }
+
+    let gitignore_path = project_path.join(".gitignore");
+    if let Ok(content) = std::fs::read_to_string(&gitignore_path) {
+        if content.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed == ".env" || trimmed == ".env*" || trimmed == ".env.*" || trimmed == "*.env"
+        }) {
+            return vec![];
+        }
+    }
+
+    vec![Finding {
+        severity: Severity::Block,
+        kind: FindingKind::ProjectAdvice {
+            advice_id: "ENV_NOT_GITIGNORED".to_string(),
+            question: ".env file exists but is NOT listed in .gitignore. This means secrets (API keys, database passwords, tokens) will be committed to git history. Add .env to .gitignore IMMEDIATELY.".to_string(),
+        },
+        file: Some(std::path::PathBuf::from(".env")),
+        line: None,
+        message: ".env file exists but is not in .gitignore — secrets will be committed to git.".to_string(),
+    }]
+}
+
+/// Infra: Check if Dockerfile runs as root (no USER directive).
+/// Running containers as root is a security risk — if the container is compromised,
+/// the attacker has root access to the host kernel's attack surface.
+fn check_dockerfile_root(project_path: &Path) -> Vec<Finding> {
+    let dockerfile_names = ["Dockerfile", "dockerfile", "Containerfile"];
+
+    for name in &dockerfile_names {
+        let path = project_path.join(name);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            // Check if USER directive exists (case-insensitive line start)
+            let has_user = content.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed.starts_with("USER ") || trimmed.starts_with("user ")
+            });
+
+            if !has_user {
+                return vec![Finding {
+                    severity: Severity::Warn,
+                    kind: FindingKind::ProjectAdvice {
+                        advice_id: "DOCKERFILE_ROOT_USER".to_string(),
+                        question: format!(
+                            "{} has no USER directive — the container runs as root. If compromised, an attacker has root-level access. Add a non-root user: USER 1001 or USER appuser.",
+                            name
+                        ),
+                    },
+                    file: Some(std::path::PathBuf::from(name)),
+                    line: None,
+                    message: format!("{} runs as root — no USER directive found.", name),
+                }];
+            }
+        }
+    }
+
+    vec![]
+}
+
+/// SEO: Check if the project has a robots.txt file.
+/// robots.txt tells search engines which pages to crawl and which to skip.
+fn check_robots_txt(project_path: &Path) -> Vec<Finding> {
+    // Check common locations
+    let locations = ["robots.txt", "public/robots.txt", "static/robots.txt"];
+    for loc in &locations {
+        if project_path.join(loc).exists() {
+            // Also check if robots.txt exposes sensitive paths
+            if let Ok(content) = std::fs::read_to_string(project_path.join(loc)) {
+                let content_lower = content.to_lowercase();
+                let sensitive_patterns = [
+                    "/admin",
+                    "/api/",
+                    "/dashboard",
+                    "/internal",
+                    "/staging",
+                    "/debug",
+                    "/phpMyAdmin",
+                    "/wp-admin",
+                ];
+                for pattern in &sensitive_patterns {
+                    if content_lower.contains(&format!("disallow: {}", pattern.to_lowercase())) {
+                        return vec![Finding {
+                            severity: Severity::Warn,
+                            kind: FindingKind::ProjectAdvice {
+                                advice_id: "ROBOTS_EXPOSES_SENSITIVE".to_string(),
+                                question: format!(
+                                    "robots.txt contains Disallow for '{}'. While this prevents crawling, it REVEALS the existence of sensitive paths to anyone reading robots.txt. Use authentication and access controls instead of relying on robots.txt for security.",
+                                    pattern
+                                ),
+                            },
+                            file: Some(std::path::PathBuf::from(loc)),
+                            line: None,
+                            message: format!("robots.txt reveals sensitive path: {}", pattern),
+                        }];
+                    }
+                }
+            }
+            return vec![];
+        }
+    }
+
+    vec![Finding {
+        severity: Severity::Advise,
+        kind: FindingKind::ProjectAdvice {
+            advice_id: "NO_ROBOTS_TXT".to_string(),
+            question: "No robots.txt file found. Search engines need robots.txt to know which pages to crawl. The LLM MUST ask: \"Do you want me to create a robots.txt?\"".to_string(),
+        },
+        file: None,
+        line: None,
+        message: "No robots.txt file found at the project root.".to_string(),
+    }]
+}
+
+/// SEO: Check if the project has a sitemap.xml file.
+fn check_sitemap(project_path: &Path) -> Vec<Finding> {
+    let locations = [
+        "sitemap.xml",
+        "public/sitemap.xml",
+        "static/sitemap.xml",
+        "sitemap.xml.gz",
+        "public/sitemap.xml.gz",
+    ];
+    for loc in &locations {
+        if project_path.join(loc).exists() {
+            return vec![];
+        }
+    }
+
+    // Also check if robots.txt references a sitemap
+    let robots_locations = ["robots.txt", "public/robots.txt", "static/robots.txt"];
+    for loc in &robots_locations {
+        if let Ok(content) = std::fs::read_to_string(project_path.join(loc)) {
+            if content.to_lowercase().contains("sitemap:") {
+                return vec![];
+            }
+        }
+    }
+
+    vec![Finding {
+        severity: Severity::Advise,
+        kind: FindingKind::ProjectAdvice {
+            advice_id: "NO_SITEMAP".to_string(),
+            question: "No sitemap.xml found. A sitemap helps search engines discover all pages on your site. The LLM MUST ask: \"Do you want me to create a sitemap.xml?\"".to_string(),
+        },
+        file: None,
+        line: None,
+        message: "No sitemap.xml found at the project root.".to_string(),
+    }]
+}
+
+/// SEO: Check if HTML files have a meta viewport tag for mobile rendering.
+fn check_meta_viewport(project_path: &Path) -> Vec<Finding> {
+    let html_extensions = ["html", "htm"];
+    let mut has_html = false;
+    let mut has_viewport = false;
+
+    for entry in WalkDir::new(project_path)
+        .max_depth(5)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| !is_excluded_dir(e.path()))
+    {
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !html_extensions.contains(&ext) {
+            continue;
+        }
+        has_html = true;
+
+        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+            if content.to_lowercase().contains("viewport") {
+                has_viewport = true;
+                break;
+            }
+        }
+    }
+
+    if has_html && !has_viewport {
+        vec![Finding {
+            severity: Severity::Advise,
+            kind: FindingKind::ProjectAdvice {
+                advice_id: "NO_META_VIEWPORT".to_string(),
+                question: "HTML files found but no meta viewport tag detected. Without it, mobile devices render the page at desktop width. Add: <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">".to_string(),
+            },
+            file: None,
+            line: None,
+            message: "No meta viewport tag found in HTML files — mobile rendering will be broken.".to_string(),
+        }]
+    } else {
+        vec![]
+    }
+}
+
+/// SEO: Check if HTML files have canonical URLs to prevent duplicate content.
+fn check_canonical(project_path: &Path) -> Vec<Finding> {
+    let html_extensions = ["html", "htm"];
+    let mut has_html = false;
+    let mut has_canonical = false;
+
+    for entry in WalkDir::new(project_path)
+        .max_depth(5)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| !is_excluded_dir(e.path()))
+    {
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !html_extensions.contains(&ext) {
+            continue;
+        }
+        has_html = true;
+
+        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+            let lower = content.to_lowercase();
+            if lower.contains("rel=\"canonical\"") || lower.contains("rel='canonical'") {
+                has_canonical = true;
+                break;
+            }
+        }
+    }
+
+    if has_html && !has_canonical {
+        vec![Finding {
+            severity: Severity::Advise,
+            kind: FindingKind::ProjectAdvice {
+                advice_id: "NO_CANONICAL".to_string(),
+                question: "HTML files found but no canonical URL tag detected. Without canonical tags, search engines may index duplicate content. Add: <link rel=\"canonical\" href=\"https://yoursite.com/page\">".to_string(),
+            },
+            file: None,
+            line: None,
+            message: "No canonical URL tags found in HTML files — risk of duplicate content in search results.".to_string(),
+        }]
+    } else {
+        vec![]
+    }
+}
+
+/// GDPR: Check if the project has a privacy policy page.
+/// Looks for files or routes named privacy, privacy-policy, politique-de-confidentialite, etc.
+/// Also checks for links to a privacy page in HTML/JSX files.
+/// Severity: ADVISE — the project should have a privacy page if it collects any user data.
+fn check_privacy_page(project_path: &Path) -> Vec<Finding> {
+    // Check for privacy page files (static sites, Next.js pages, etc.)
+    let privacy_file_patterns = [
+        // English
+        "privacy",
+        "privacy-policy",
+        "privacy_policy",
+        "privacypolicy",
+        // French
+        "politique-de-confidentialite",
+        "politique_confidentialite",
+        "confidentialite",
+        // German
+        "datenschutz",
+        // Spanish
+        "politica-de-privacidad",
+        // Legal catch-all
+        "legal",
+        "mentions-legales",
+        "mentions_legales",
+    ];
+
+    let source_extensions = [
+        "html", "htm", "jsx", "tsx", "js", "ts", "vue", "svelte", "md", "mdx",
+    ];
+
+    for entry in WalkDir::new(project_path)
+        .max_depth(6)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| !is_excluded_dir(e.path()))
+    {
+        let file_name = entry
+            .path()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        // Check if filename matches a privacy page pattern
+        for pattern in &privacy_file_patterns {
+            if file_name == *pattern {
+                return vec![];
+            }
+        }
+    }
+
+    // Check for links to privacy pages in source files
+    let link_patterns = [
+        "/privacy",
+        "/privacy-policy",
+        "/politique-de-confidentialite",
+        "/confidentialite",
+        "/datenschutz",
+        "/legal",
+        "/mentions-legales",
+        "privacy.html",
+        "privacy-policy.html",
+    ];
+
+    for entry in WalkDir::new(project_path)
+        .max_depth(6)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| !is_excluded_dir(e.path()))
+    {
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !source_extensions.contains(&ext) {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let content_lower = content.to_lowercase();
+        for pattern in &link_patterns {
+            if content_lower.contains(pattern) {
+                return vec![];
+            }
+        }
+    }
+
+    vec![Finding {
+        severity: Severity::Advise,
+        kind: FindingKind::ProjectAdvice {
+            advice_id: "NO_PRIVACY_PAGE".to_string(),
+            question: "No privacy policy page detected in the project. Under RGPD/GDPR Article 13, you MUST inform users about data collection, processing purposes, data retention, and their rights (access, rectification, erasure). The LLM MUST ask the developer: \"Do you want me to create a privacy policy page? I'll need to know: what data you collect, why, how long you keep it, and who has access.\"".to_string(),
+        },
+        file: None,
+        line: None,
+        message: "No privacy policy page found. RGPD/GDPR Article 13 requires informing users about data processing.".to_string(),
+    }]
+}
+
+/// GDPR: Check if the project has tracking scripts but no cookie consent banner/CMP.
+/// This is a project-level check: if ANY tracking is detected in the codebase,
+/// there MUST be a consent management mechanism present somewhere.
+/// Severity: WARN (the tracking scripts themselves are caught by TRACKING_NO_CONSENT rule as BLOCK).
+fn check_cookie_banner(project_path: &Path) -> Vec<Finding> {
+    let tracking_patterns = [
+        "gtag(",
+        "googletagmanager.com",
+        "GoogleAnalyticsObject",
+        "fbq(",
+        "_paq.push",
+        "hotjar.com",
+    ];
+
+    let cmp_patterns = [
+        // CMP libraries and services
+        "cookiebot",
+        "CookieBot",
+        "onetrust",
+        "OneTrust",
+        "cookieyes",
+        "CookieYes",
+        "cookie-script",
+        "cookie_script",
+        "tarteaucitron",
+        "klaro",
+        "Klaro",
+        "osano",
+        "Osano",
+        "didomi",
+        "Didomi",
+        "axeptio",
+        "Axeptio",
+        "secureprivacy",
+        // Custom cookie banner components/patterns
+        "cookie-banner",
+        "cookie-consent",
+        "cookieBanner",
+        "cookieConsent",
+        "CookieBanner",
+        "CookieConsent",
+        "gdpr-banner",
+        "gdprBanner",
+        "consent-banner",
+        "consentBanner",
+        "ConsentBanner",
+        // Google Consent Mode
+        "consent', 'default",
+        "consent\", \"default",
+    ];
+
+    let mut has_tracking = false;
+    let mut has_cmp = false;
+
+    let extensions = [
+        "html", "js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte",
+    ];
+
+    for entry in WalkDir::new(project_path)
+        .max_depth(10)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| !is_excluded_dir(e.path()))
+    {
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !extensions.contains(&ext) {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if !has_tracking {
+            for pattern in &tracking_patterns {
+                if content.contains(pattern) {
+                    has_tracking = true;
+                    break;
+                }
+            }
+        }
+
+        if !has_cmp {
+            for pattern in &cmp_patterns {
+                if content.contains(pattern) {
+                    has_cmp = true;
+                    break;
+                }
+            }
+        }
+
+        // Early exit if both found
+        if has_tracking && has_cmp {
+            return vec![];
+        }
+    }
+
+    // Also check package.json for CMP dependencies
+    if !has_cmp {
+        let pkg_path = project_path.join("package.json");
+        if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+            let cmp_deps = [
+                "react-cookie-consent",
+                "cookie-consent",
+                "vue-cookie-comply",
+                "@cookiebot",
+                "onetrust",
+                "tarteaucitron",
+                "klaro",
+                "osano",
+                "didomi",
+            ];
+            for dep in &cmp_deps {
+                if content.contains(dep) {
+                    has_cmp = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if has_tracking && !has_cmp {
+        vec![Finding {
+            severity: Severity::Warn,
+            kind: FindingKind::ProjectAdvice {
+                advice_id: "NO_COOKIE_BANNER".to_string(),
+                question: "Tracking scripts detected (gtag, Facebook Pixel, Matomo, or Hotjar) but no Cookie Consent Management Platform (CMP) found. Under RGPD/GDPR and ePrivacy Directive, a cookie consent banner is REQUIRED before any non-essential cookies are set. The LLM MUST ask the developer: \"Which CMP do you want to use? Options: CookieBot, OneTrust, CookieYes, tarteaucitron (free), Klaro (free), Osano, Didomi, Axeptio.\"".to_string(),
+            },
+            file: None,
+            line: None,
+            message: "Tracking scripts detected but no cookie consent banner/CMP found. RGPD/GDPR requires explicit user consent before setting analytics cookies.".to_string(),
+        }]
+    } else {
+        vec![]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1062,7 +1635,11 @@ mod tests {
         let dir = TempDir::new().expect("create temp dir");
         fs::write(dir.path().join("package.json"), "{}").expect("write pkg");
 
-        let findings = analyze_project(dir.path(), &[Ecosystem::JavaScript]);
+        let findings = analyze_project(
+            dir.path(),
+            &[Ecosystem::JavaScript],
+            &["security".to_string()],
+        );
         // Should have at least: NO_TESTS, NO_CI_CD, NO_README
         let advice_ids: Vec<&str> = findings
             .iter()
@@ -1108,7 +1685,11 @@ mod tests {
         fs::create_dir(&src).expect("create src");
         fs::write(src.join("app.js"), "const express = require('express');").expect("write src");
 
-        let findings = analyze_project(dir.path(), &[Ecosystem::JavaScript]);
+        let findings = analyze_project(
+            dir.path(),
+            &[Ecosystem::JavaScript],
+            &["security".to_string()],
+        );
 
         // Well-configured project should have no advisories
         // (except maybe deprecated deps if we had any)

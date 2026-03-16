@@ -1,0 +1,39 @@
+id: HTTP_NO_TIMEOUT
+version: 1
+severity: WARN
+category: security
+cwe:
+  - "CWE-400"
+source:
+  name: "CWE-400: Uncontrolled Resource Consumption — Go net/http"
+  quote: "Go's default HTTP server and client have no timeout, making them vulnerable to slowloris attacks and resource exhaustion."
+  note: "Go's http.ListenAndServe uses http.Server with zero timeouts by default. A single slow client can hold a connection open indefinitely, eventually exhausting all available goroutines. Always set ReadTimeout, WriteTimeout, and IdleTimeout."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - go
+file_patterns:
+  - "*.go"
+patterns:
+  - "http\\.ListenAndServe\\s*\\("
+  - "http\\.ListenAndServeTLS\\s*\\("
+negation: true
+negation_pattern: "ReadTimeout|WriteTimeout|IdleTimeout|ReadHeaderTimeout|http\\.Server\\s*\\{"
+case_insensitive: false
+message: "Go HTTP server started with http.ListenAndServe() which uses zero timeouts by default. A single slow client can hold connections indefinitely, exhausting goroutines (slowloris attack). Always use http.Server{} with explicit timeouts."
+fix: |
+  Use http.Server with explicit timeouts:
+
+    // WRONG — no timeouts, vulnerable to slowloris:
+    http.ListenAndServe(":8080", mux)
+
+    // RIGHT — explicit timeouts:
+    server := &http.Server{
+        Addr:              ":8080",
+        Handler:           mux,
+        ReadTimeout:       5 * time.Second,
+        ReadHeaderTimeout: 2 * time.Second,
+        WriteTimeout:      10 * time.Second,
+        IdleTimeout:       120 * time.Second,
+    }
+    server.ListenAndServe()

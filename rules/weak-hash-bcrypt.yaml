@@ -1,0 +1,52 @@
+id: WEAK_HASH_BCRYPT
+version: 1
+severity: WARN
+category: security
+cwe:
+  - "CWE-916"
+source:
+  name: "CWE-916: Use of Password Hash With Insufficient Computational Effort"
+  quote: "The product generates a hash for a password, but it uses a scheme that does not provide a sufficient level of computational effort that would make password cracking attacks infeasible or expensive."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # bcrypt with cost factor < 10 (single digit = too fast to crack)
+  - "bcrypt\\.hash\\s*\\([^,]+,\\s*[1-9]\\s*[,)]"
+  - "bcrypt\\.hashSync\\s*\\([^,]+,\\s*[1-9]\\s*[,)]"
+  - "genSalt\\s*\\(\\s*[1-9]\\s*\\)"
+  # MD5 for password hashing (broken since 2004)
+  - "createHash\\s*\\(\\s*['\"]md5['\"]\\s*\\)"
+  # SHA1 for password hashing (broken since 2017)
+  - "createHash\\s*\\(\\s*['\"]sha1['\"]\\s*\\)"
+case_insensitive: false
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+message: "Weak password hashing detected. bcrypt with cost factor below 10 can be brute-forced on modern GPUs. MD5 and SHA1 are cryptographically broken and must never be used for password storage."
+fix: |
+  Use bcrypt with a minimum cost factor of 10 (12 recommended):
+    // WRONG - too fast:
+    const hash = await bcrypt.hash(password, 4);
+    const hash = crypto.createHash('md5').update(password).digest('hex');
+    const hash = crypto.createHash('sha1').update(password).digest('hex');
+
+    // RIGHT - bcrypt with cost 12:
+    const hash = await bcrypt.hash(password, 12);
+
+    // RIGHT - argon2 (even better):
+    const hash = await argon2.hash(password);
+
+  Minimum recommendations:
+    - bcrypt: cost factor >= 10 (12 recommended)
+    - argon2id: preferred for new projects
+    - NEVER use MD5, SHA1, or SHA256 alone for passwords

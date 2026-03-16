@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- SAFE: CookieYes CMP loaded before any tracking -->
+  <script src="https://cdn-cookieyes.com/client_data/abc123.js"></script>
+
+  <!-- SAFE: GTM with Google Consent Mode defaults -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied',
+      wait_for_update: 500,
+    });
+  </script>
+  <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXX"></script>
+
+  <!-- SAFE: Klaro consent manager -->
+  <script defer src="/klaro.js"></script>
+  <script>
+    var klaroConfig = {
+      acceptAll: false,
+      services: [{
+        name: 'google-analytics',
+        purposes: ['analytics'],
+        cookies: ['_ga', '_gid'],
+      }]
+    };
+  </script>
+</head>
+<body></body>
+</html>

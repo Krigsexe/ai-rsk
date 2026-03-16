@@ -2,6 +2,7 @@ use crate::detect;
 use crate::types::Ecosystem;
 use anyhow::{Context, Result};
 use colored::Colorize;
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// Result of the init command - tracks what was created/modified.
@@ -15,6 +16,16 @@ pub struct InitReport {
 
 /// Run the full init pipeline for a project.
 pub fn run_init(project_path: &Path) -> Result<InitReport> {
+    // Ensure the project directory exists
+    if !project_path.exists() {
+        std::fs::create_dir_all(project_path).with_context(|| {
+            format!(
+                "Failed to create project directory: {}",
+                project_path.display()
+            )
+        })?;
+    }
+
     let project_path = project_path
         .canonicalize()
         .unwrap_or_else(|_| project_path.to_path_buf());
@@ -24,6 +35,18 @@ pub fn run_init(project_path: &Path) -> Result<InitReport> {
     // Step 1: Detect ecosystems
     let ecosystems = detect::detect_ecosystems(&project_path);
     report.ecosystems = ecosystems.clone();
+
+    // Step 1.5: Interactive setup (if terminal is available)
+    let (selected_profiles, selected_mode, selected_region) = run_interactive_setup(&ecosystems);
+
+    // Generate ai-rsk.config.yaml with user selections
+    generate_config_file(
+        &project_path,
+        &selected_profiles,
+        &selected_mode,
+        &selected_region,
+        &mut report,
+    )?;
 
     println!("{}\n", "ai-rsk init - Setting up security gate".bold());
     println!(
@@ -41,10 +64,17 @@ pub fn run_init(project_path: &Path) -> Result<InitReport> {
         println!("  Ecosystems: {}", names.join(", ").cyan());
     }
 
+    if selected_profiles.len() > 1 {
+        println!("  Profiles: {}", selected_profiles.join(", ").cyan());
+    }
+    if let Some(ref m) = selected_mode {
+        println!("  Mode: {}", m.cyan());
+    }
+
     // Step 2: Generate SECURITY_RULES.md
     let security_rules_path = project_path.join("SECURITY_RULES.md");
     if !security_rules_path.exists() {
-        let content = generate_security_rules();
+        let content = generate_security_rules(&selected_profiles);
         std::fs::write(&security_rules_path, content)
             .context("Failed to write SECURITY_RULES.md")?;
         println!("  {} Created SECURITY_RULES.md", "+".green());
@@ -60,7 +90,7 @@ pub fn run_init(project_path: &Path) -> Result<InitReport> {
     }
 
     // Step 3: Generate LLM discipline file
-    let discipline_content = generate_discipline_file(&ecosystems);
+    let discipline_content = generate_discipline_file(&ecosystems, &selected_profiles);
     let discipline_targets = detect_llm_targets(&project_path);
 
     // Wrap discipline content in markers so we can update it in existing files
@@ -287,6 +317,262 @@ pub fn run_init(project_path: &Path) -> Result<InitReport> {
     Ok(report)
 }
 
+// ─────────────────────────────────────────────────
+// Interactive setup (cliclack)
+// ─────────────────────────────────────────────────
+
+/// Embedded composite ANSI art: shield logo (chafa 40col) + AI-RSK text (figlet block, white bold).
+/// Generated at build time, compiled into the binary. No runtime dependencies.
+const LOGO_COMPOSITE: &str = include_str!("../assets/logo-composite.ans");
+
+fn get_logo() -> String {
+    use console::measure_text_width;
+
+    let version = env!("CARGO_PKG_VERSION");
+    let inner_width: usize = 78;
+    let dash = "\u{2500}";
+    let o = "\x1b[38;2;255;140;0m"; // orange
+    let r = "\x1b[0m"; // reset
+
+    let title = format!(" ai-rsk v{} ", version);
+    let tl = (inner_width - title.len()) / 2;
+    let tr = inner_width - title.len() - tl;
+
+    let mut output = String::new();
+
+    // Top border
+    output.push_str(&format!(
+        "{o}\u{256D}{}{}{}\u{256E}{r}\n",
+        dash.repeat(tl),
+        title,
+        dash.repeat(tr)
+    ));
+
+    // Each content line: │ <content padded to inner_width> │
+    for line in LOGO_COMPOSITE.lines() {
+        let visual_width = measure_text_width(line);
+        let padding = inner_width.saturating_sub(visual_width);
+        output.push_str(&format!(
+            "{o}\u{2502}{r}{}{}{o}\u{2502}{r}\n",
+            line,
+            " ".repeat(padding)
+        ));
+    }
+
+    // Subtitle line inside the box - centered
+    let sub_text = "Security Gate for AI-Generated Code  |  github.com/Krigsexe/ai-rsk";
+    let sub_visual_len = sub_text.len();
+    let sub_pad_left = inner_width.saturating_sub(sub_visual_len) / 2;
+    let sub_pad_right = inner_width
+        .saturating_sub(sub_visual_len)
+        .saturating_sub(sub_pad_left);
+    output.push_str(&format!(
+        "{o}\u{2502}{r}{}{o}{}{r}{}{o}\u{2502}{r}\n",
+        " ".repeat(sub_pad_left),
+        sub_text,
+        " ".repeat(sub_pad_right)
+    ));
+
+    // Empty line inside box
+    output.push_str(&format!(
+        "{o}\u{2502}{}\u{2502}{r}\n",
+        " ".repeat(inner_width)
+    ));
+
+    // Bottom border
+    output.push_str(&format!(
+        "{o}\u{2570}{}\u{256F}{r}\n",
+        dash.repeat(inner_width)
+    ));
+
+    output.push('\n');
+    output
+}
+
+/// Run the interactive setup questionnaire.
+/// Returns (profiles, mode, region).
+/// Falls back to defaults if not a terminal (CI/piped input).
+fn run_interactive_setup(
+    ecosystems: &[Ecosystem],
+) -> (Vec<String>, Option<String>, Option<String>) {
+    let defaults = (vec!["security".to_string()], None, None);
+
+    // Show logo
+    println!("{}", get_logo().truecolor(255, 140, 0)); // Orange
+
+    // Try interactive prompts — fall back to defaults if not a terminal
+    match try_interactive_prompts(ecosystems) {
+        Ok(result) => result,
+        Err(_) => {
+            // Not a terminal or user cancelled — use defaults silently
+            println!(
+                "  {}",
+                "Non-interactive mode detected. Using defaults (security only).".dimmed()
+            );
+            defaults
+        }
+    }
+}
+
+/// Attempt to run cliclack prompts. Returns Err if not a terminal.
+fn try_interactive_prompts(
+    ecosystems: &[Ecosystem],
+) -> io::Result<(Vec<String>, Option<String>, Option<String>)> {
+    cliclack::intro("ai-rsk init - Security gate setup")?;
+
+    // Ecosystem info
+    if ecosystems.is_empty() {
+        cliclack::outro_note(
+            "Ecosystem",
+            "No known ecosystem detected. Universal config.",
+        )?;
+    } else {
+        let names: Vec<String> = ecosystems.iter().map(|e| format!("{e}")).collect();
+        cliclack::outro_note("Ecosystem", names.join(", "))?;
+    }
+
+    // Profile selection
+    let profile_selection: Vec<String> =
+        cliclack::MultiSelect::new("Select compliance profiles (security is always active)")
+            .item(
+                "gdpr".to_string(),
+                "GDPR/RGPD",
+                "EU data protection, cookies, consent",
+            )
+            .item(
+                "ai-act".to_string(),
+                "EU AI Act",
+                "AI transparency, labeling, audit",
+            )
+            .item("seo".to_string(), "SEO", "robots.txt, meta tags, sitemap")
+            .item(
+                "a11y".to_string(),
+                "Accessibility",
+                "WCAG 2.2, alt text, lang attributes",
+            )
+            .required(false)
+            .interact()?;
+
+    let mut profiles = vec!["security".to_string()];
+    profiles.extend(profile_selection);
+
+    // Mode selection
+    let mode: String = cliclack::Select::new("Select environment mode")
+        .item(
+            "auto".to_string(),
+            "Auto",
+            "No mode filter - all rules active (default)",
+        )
+        .item(
+            "development".to_string(),
+            "Development",
+            "Tolerant - source maps OK, some rules relaxed",
+        )
+        .item(
+            "production".to_string(),
+            "Production",
+            "Strict - everything enforced",
+        )
+        .initial_value("auto".to_string())
+        .interact()?;
+
+    let selected_mode = if mode == "auto" { None } else { Some(mode) };
+
+    // Region (only ask if GDPR not already selected)
+    let selected_region = if !profiles.contains(&"gdpr".to_string()) {
+        let is_eu = cliclack::Confirm::new("Is this project deployed in the EU?")
+            .initial_value(false)
+            .interact()?;
+
+        if is_eu {
+            // Auto-activate GDPR
+            if !profiles.contains(&"gdpr".to_string()) {
+                profiles.push("gdpr".to_string());
+            }
+            Some("eu".to_string())
+        } else {
+            None
+        }
+    } else {
+        Some("eu".to_string())
+    };
+
+    // Summary
+    let summary = format!(
+        "Profiles: {} | Mode: {}",
+        profiles.join(", "),
+        selected_mode.as_deref().unwrap_or("auto"),
+    );
+    cliclack::outro(summary)?;
+
+    Ok((profiles, selected_mode, selected_region))
+}
+
+/// Generate ai-rsk.config.yaml with user selections.
+fn generate_config_file(
+    project_path: &Path,
+    profiles: &[String],
+    mode: &Option<String>,
+    region: &Option<String>,
+    report: &mut InitReport,
+) -> Result<()> {
+    let config_path = project_path.join("ai-rsk.config.yaml");
+
+    if config_path.exists() {
+        println!(
+            "  {} ai-rsk.config.yaml already exists - skipping",
+            "~".yellow()
+        );
+        return Ok(());
+    }
+
+    let mut content = String::new();
+    content.push_str("# ai-rsk configuration - generated by ai-rsk init\n");
+    content.push_str("# Documentation: https://github.com/Krigsexe/ai-rsk\n\n");
+
+    // Profiles (only write if non-default)
+    if profiles.len() > 1 || profiles.iter().any(|p| p != "security") {
+        content.push_str("# Active compliance profiles\n");
+        content.push_str("profiles:\n");
+        for p in profiles {
+            content.push_str(&format!("  - \"{}\"\n", p));
+        }
+        content.push('\n');
+    }
+
+    // Mode
+    if let Some(m) = mode {
+        content.push_str(&format!("# Environment mode\nmode: \"{}\"\n\n", m));
+    }
+
+    // Region
+    if let Some(r) = region {
+        content.push_str(&format!(
+            "# Region hint (eu = GDPR automatically active)\nregion: \"{}\"\n\n",
+            r
+        ));
+    }
+
+    // Default settings
+    content.push_str(
+        "# Timeout in seconds for external tool execution\ntool_timeout_seconds: 120\n\n",
+    );
+    content.push_str("# Rules to disable (each requires a justification)\n");
+    content.push_str("# disabled_rules:\n");
+    content.push_str("#   - id: RULE_ID\n");
+    content.push_str("#     reason: \"Why this rule is disabled\"\n\n");
+    content.push_str("# Additional paths to exclude from scanning\n");
+    content.push_str("# exclude:\n");
+    content.push_str("#   - \"generated/\"\n");
+    content.push_str("#   - \"migrations/\"\n");
+
+    std::fs::write(&config_path, content).context("Failed to write ai-rsk.config.yaml")?;
+    println!("  {} Created ai-rsk.config.yaml", "+".green());
+    report.created.push(config_path);
+
+    Ok(())
+}
+
 /// Ensure `.ai-rsk/` is listed in the project's `.gitignore`.
 /// The report (.ai-rsk/report.md) is a build artifact and should not be committed.
 fn ensure_gitignore_entry(project_path: &Path, report: &mut InitReport) {
@@ -342,7 +628,8 @@ fn ensure_gitignore_entry(project_path: &Path, report: &mut InitReport) {
 // ─────────────────────────────────────────────────
 
 /// Generate the SECURITY_RULES.md content - the LLM-facing contract.
-fn generate_security_rules() -> String {
+/// The content adapts based on active profiles (gdpr, ai-act, seo, a11y).
+fn generate_security_rules(profiles: &[String]) -> String {
     let mut s = String::new();
     s.push_str("# SECURITY_RULES.md - ai-rsk Security Contract\n\n");
     s.push_str(
@@ -404,7 +691,12 @@ fn generate_security_rules() -> String {
     s.push_str("- [ ] Business values (prices, quantities) are validated server-side\n");
     s.push_str("- [ ] console.log is stripped in production builds\n");
     s.push_str("- [ ] Tests exist and cover security-critical paths\n");
-    s.push_str("- [ ] CI/CD pipeline runs ai-rsk scan\n\n");
+    s.push_str("- [ ] CI/CD pipeline runs ai-rsk scan\n");
+    s.push_str(
+        "- [ ] Dependency lockfile exists (package-lock.json, yarn.lock, Cargo.lock, go.sum)\n",
+    );
+    s.push_str("- [ ] .env file is listed in .gitignore (NEVER commit secrets)\n");
+    s.push_str("- [ ] Dockerfile uses a non-root USER directive\n\n");
 
     s.push_str("## Working method (imposed)\n\n");
     s.push_str("1. **OBSERVE** - Read existing code before modifying anything\n");
@@ -422,15 +714,73 @@ fn generate_security_rules() -> String {
     );
     s.push_str("Do not try to work around the failure.\n\n");
 
+    // Profile-specific sections
+    if profiles.iter().any(|p| p == "gdpr") {
+        s.push_str("## GDPR/RGPD compliance (active)\n\n");
+        s.push_str("The GDPR/RGPD profile is active on this project. The LLM MUST:\n\n");
+        s.push_str("- [ ] **Never load tracking scripts** (gtag, fbq, Matomo, Hotjar) without a consent guard\n");
+        s.push_str("- [ ] **Implement Google Consent Mode v2**: call `gtag('consent', 'default', { analytics_storage: 'denied' })` BEFORE any `gtag('config')`\n");
+        s.push_str("- [ ] **Install a Consent Management Platform** (CookieBot, tarteaucitron, Klaro, CookieYes, OneTrust, Didomi, Axeptio, or Osano)\n");
+        s.push_str("- [ ] **Never store PII in localStorage/sessionStorage** (email, phone, name, address, DOB, SSN) — use httpOnly cookies or server-side sessions\n");
+        s.push_str("- [ ] **Create a privacy policy page** (/privacy or /politique-de-confidentialite) explaining: what data is collected, why, how long, who has access, user rights (access, rectification, erasure)\n");
+        s.push_str("- [ ] **Add a cookie banner** that blocks non-essential cookies until explicit opt-in consent\n");
+        s.push_str("- [ ] **Set Referrer-Policy** header to `strict-origin-when-cross-origin` or stricter\n");
+        s.push_str("- [ ] **Set Permissions-Policy** header to disable unnecessary browser APIs (camera, microphone, geolocation)\n");
+        s.push_str(
+            "- [ ] **Respect data minimization** — only collect what is strictly necessary\n\n",
+        );
+        s.push_str("ai-rsk rules enforcing GDPR: TRACKING_NO_CONSENT (BLOCK), PII_IN_LOCALSTORAGE (WARN), NO_COOKIE_BANNER (WARN), NO_PRIVACY_PAGE (ADVISE).\n");
+        s.push_str("Run `ai-rsk scan --gdpr` to check compliance.\n\n");
+    }
+
+    if profiles.iter().any(|p| p == "ai-act") {
+        s.push_str("## EU AI Act compliance (active)\n\n");
+        s.push_str("The AI Act profile is active on this project. The LLM MUST:\n\n");
+        s.push_str("- [ ] **Label all AI-generated outputs** — users must know when content is produced by AI\n");
+        s.push_str("- [ ] **Never expose system prompts** to the client — they contain business logic and can be exploited\n");
+        s.push_str(
+            "- [ ] **Log all LLM API calls** with timestamp, model, token count for audit trail\n",
+        );
+        s.push_str("- [ ] **Set token limits** on LLM calls to prevent cost overrun and abuse\n\n");
+        s.push_str("ai-rsk rules enforcing AI Act: AI_OUTPUT_NO_LABEL (WARN), SYSTEM_PROMPT_CLIENT_EXPOSED (BLOCK), LLM_CALL_NO_AUDIT_LOG (WARN), LLM_NO_TOKEN_LIMIT (WARN).\n");
+        s.push_str("Run `ai-rsk scan --ai-act` to check compliance.\n\n");
+    }
+
+    if profiles.iter().any(|p| p == "seo") {
+        s.push_str("## SEO compliance (active)\n\n");
+        s.push_str("The SEO profile is active on this project. The LLM MUST:\n\n");
+        s.push_str("- [ ] **Create a robots.txt** at the project root\n");
+        s.push_str("- [ ] **Create a sitemap.xml** and reference it in robots.txt\n");
+        s.push_str("- [ ] **Add meta viewport** tag for mobile rendering\n");
+        s.push_str("- [ ] **Add canonical URLs** to prevent duplicate content\n\n");
+        s.push_str("ai-rsk checks enforcing SEO: NO_ROBOTS_TXT (ADVISE), ROBOTS_EXPOSES_SENSITIVE (WARN), NO_SITEMAP (ADVISE), NO_META_VIEWPORT (ADVISE), NO_CANONICAL (ADVISE).\n");
+        s.push_str("Run `ai-rsk scan --seo` to check compliance.\n\n");
+    }
+
+    if profiles.iter().any(|p| p == "a11y") {
+        s.push_str("## Accessibility compliance (active)\n\n");
+        s.push_str("The accessibility profile is active on this project. The LLM MUST:\n\n");
+        s.push_str(
+            "- [ ] **Add alt text to all images** — `<img>` tags must have an `alt` attribute\n",
+        );
+        s.push_str("- [ ] **Set lang attribute** on the `<html>` tag\n");
+        s.push_str("- [ ] **Add labels to all form inputs** — every `<input>` needs a `<label>` or `aria-label`\n\n");
+        s.push_str("ai-rsk rules enforcing accessibility: IMG_NO_ALT (WARN), NO_HTML_LANG (WARN), FORM_NO_LABEL (WARN).\n");
+        s.push_str("Run `ai-rsk scan --a11y` to check compliance.\n\n");
+    }
+
     s.push_str("---\n");
-    s.push_str("*Generated by ai-rsk v0.1.0 - https://github.com/Krigsexe/ai-rsk*\n");
+    s.push_str(&format!(
+        "*Generated by ai-rsk v{} - https://github.com/Krigsexe/ai-rsk*\n",
+        env!("CARGO_PKG_VERSION")
+    ));
 
     s
 }
 
 /// Generate the LLM discipline file content.
-/// This content is the same regardless of which LLM tool reads it.
-fn generate_discipline_file(ecosystems: &[Ecosystem]) -> String {
+/// This content adapts based on detected ecosystems and active profiles.
+fn generate_discipline_file(ecosystems: &[Ecosystem], profiles: &[String]) -> String {
     let mut s = String::new();
     s.push_str("# ai-rsk - LLM Security Discipline\n\n");
     s.push_str("This project is protected by ai-rsk. The build WILL NOT pass if security rules are violated.\n");
@@ -549,8 +899,53 @@ fn generate_discipline_file(ecosystems: &[Ecosystem]) -> String {
         s.push_str("- Never use `.unwrap()` on user input - use proper error handling\n");
     }
 
+    // Profile-specific discipline
+    if profiles.iter().any(|p| p == "gdpr") {
+        s.push_str("\n## GDPR/RGPD discipline (active)\n\n");
+        s.push_str("This project has GDPR compliance enabled. You MUST:\n\n");
+        s.push_str("- **BLOCK**: Never load tracking scripts (gtag, fbq, Matomo, Hotjar) without consent\n");
+        s.push_str("- **BLOCK**: Use Google Consent Mode v2 — `gtag('consent', 'default', { analytics_storage: 'denied' })` BEFORE any `gtag('config')`\n");
+        s.push_str("- **WARN**: Never store PII (email, phone, name, address) in localStorage/sessionStorage\n");
+        s.push_str(
+            "- **WARN**: Install a CMP (tarteaucitron, Klaro, CookieBot, CookieYes, OneTrust)\n",
+        );
+        s.push_str("- **ADVISE**: Create a privacy policy page (/privacy)\n");
+        s.push_str("- Run `ai-rsk scan --gdpr` to check GDPR compliance\n");
+    }
+
+    if profiles.iter().any(|p| p == "ai-act") {
+        s.push_str("\n## EU AI Act discipline (active)\n\n");
+        s.push_str("This project has AI Act compliance enabled. You MUST:\n\n");
+        s.push_str("- Label all AI-generated outputs for end users\n");
+        s.push_str("- Never expose system prompts to the client\n");
+        s.push_str("- Log all LLM API calls (timestamp, model, tokens) for audit\n");
+        s.push_str("- Set token limits on all LLM API calls\n");
+        s.push_str("- Run `ai-rsk scan --ai-act` to check AI Act compliance\n");
+    }
+
+    if profiles.iter().any(|p| p == "seo") {
+        s.push_str("\n## SEO discipline (active)\n\n");
+        s.push_str("This project has SEO compliance enabled. You MUST:\n\n");
+        s.push_str("- Create robots.txt and sitemap.xml\n");
+        s.push_str("- Add meta viewport for mobile\n");
+        s.push_str("- Add canonical URLs\n");
+        s.push_str("- Run `ai-rsk scan --seo` to check SEO compliance\n");
+    }
+
+    if profiles.iter().any(|p| p == "a11y") {
+        s.push_str("\n## Accessibility discipline (active)\n\n");
+        s.push_str("This project has accessibility compliance enabled. You MUST:\n\n");
+        s.push_str("- Add alt text to all images\n");
+        s.push_str("- Set lang attribute on <html>\n");
+        s.push_str("- Add labels to all form inputs\n");
+        s.push_str("- Run `ai-rsk scan --a11y` to check accessibility compliance\n");
+    }
+
     s.push_str("\n---\n");
-    s.push_str("*Generated by ai-rsk v0.1.0 - https://github.com/Krigsexe/ai-rsk*\n");
+    s.push_str(&format!(
+        "*Generated by ai-rsk v{} - https://github.com/Krigsexe/ai-rsk*\n",
+        env!("CARGO_PKG_VERSION")
+    ));
 
     s
 }
@@ -935,25 +1330,25 @@ mod tests {
 
     #[test]
     fn test_security_rules_contains_key_sections() {
-        let content = generate_security_rules();
+        let content = generate_security_rules(&["security".to_string()]);
         assert!(content.contains("SECURITY_RULES.md"));
         assert!(content.contains("What you MUST do"));
         assert!(content.contains("What you MUST NOT do"));
         assert!(content.contains("Security checklist"));
         assert!(content.contains("Exit codes"));
-        assert!(content.contains("ai-rsk v0.1.0"));
+        assert!(content.contains(&format!("ai-rsk v{}", env!("CARGO_PKG_VERSION"))));
     }
 
     #[test]
     fn test_security_rules_forbids_localstorage() {
-        let content = generate_security_rules();
+        let content = generate_security_rules(&["security".to_string()]);
         assert!(content.contains("localStorage"));
         assert!(content.contains("HttpOnly"));
     }
 
     #[test]
     fn test_security_rules_forbids_contournement() {
-        let content = generate_security_rules();
+        let content = generate_security_rules(&["security".to_string()]);
         assert!(content.contains("|| true"));
         assert!(content.contains("--no-verify"));
         assert!(content.contains("ai-rsk-ignore"));
@@ -961,7 +1356,7 @@ mod tests {
 
     #[test]
     fn test_discipline_file_universal_content() {
-        let content = generate_discipline_file(&[]);
+        let content = generate_discipline_file(&[], &["security".to_string()]);
         assert!(content.contains("OBSERVE"));
         assert!(content.contains("UNDERSTAND"));
         assert!(content.contains("PLAN"));
@@ -973,7 +1368,7 @@ mod tests {
 
     #[test]
     fn test_discipline_file_js_specific() {
-        let content = generate_discipline_file(&[Ecosystem::JavaScript]);
+        let content = generate_discipline_file(&[Ecosystem::JavaScript], &["security".to_string()]);
         assert!(content.contains("JavaScript/TypeScript specific"));
         assert!(content.contains("express.json"));
         assert!(content.contains("Semgrep covers JS/TS security"));
@@ -984,7 +1379,7 @@ mod tests {
 
     #[test]
     fn test_discipline_file_python_specific() {
-        let content = generate_discipline_file(&[Ecosystem::Python]);
+        let content = generate_discipline_file(&[Ecosystem::Python], &["security".to_string()]);
         assert!(content.contains("Python specific"));
         assert!(content.contains("Semgrep covers Python security"));
         assert!(!content.contains("JavaScript/TypeScript specific"));
@@ -992,14 +1387,14 @@ mod tests {
 
     #[test]
     fn test_discipline_file_go_specific() {
-        let content = generate_discipline_file(&[Ecosystem::Go]);
+        let content = generate_discipline_file(&[Ecosystem::Go], &["security".to_string()]);
         assert!(content.contains("Go specific"));
         assert!(content.contains("Semgrep covers Go security"));
     }
 
     #[test]
     fn test_discipline_file_rust_specific() {
-        let content = generate_discipline_file(&[Ecosystem::Rust]);
+        let content = generate_discipline_file(&[Ecosystem::Rust], &["security".to_string()]);
         assert!(content.contains("Rust specific"));
         assert!(content.contains("cargo-audit"));
         assert!(content.contains("unsafe"));
@@ -1007,11 +1402,61 @@ mod tests {
 
     #[test]
     fn test_discipline_file_multi_ecosystem() {
-        let content = generate_discipline_file(&[Ecosystem::JavaScript, Ecosystem::Python]);
+        let content = generate_discipline_file(
+            &[Ecosystem::JavaScript, Ecosystem::Python],
+            &["security".to_string()],
+        );
         assert!(content.contains("JavaScript/TypeScript specific"));
         assert!(content.contains("Python specific"));
         assert!(!content.contains("Go specific"));
         assert!(!content.contains("Rust specific"));
+    }
+
+    // ─────────────────────────────────────────────────
+    // Profile-aware content tests
+    // ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_security_rules_gdpr_section_when_active() {
+        let content = generate_security_rules(&["security".to_string(), "gdpr".to_string()]);
+        assert!(content.contains("GDPR/RGPD compliance (active)"));
+        assert!(content.contains("TRACKING_NO_CONSENT"));
+        assert!(content.contains("PII_IN_LOCALSTORAGE"));
+        assert!(content.contains("NO_COOKIE_BANNER"));
+        assert!(content.contains("NO_PRIVACY_PAGE"));
+        assert!(content.contains("consent guard"));
+        assert!(content.contains("Consent Management Platform"));
+    }
+
+    #[test]
+    fn test_security_rules_no_gdpr_without_profile() {
+        let content = generate_security_rules(&["security".to_string()]);
+        assert!(!content.contains("GDPR/RGPD compliance"));
+        assert!(!content.contains("TRACKING_NO_CONSENT"));
+    }
+
+    #[test]
+    fn test_discipline_gdpr_section_when_active() {
+        let content = generate_discipline_file(
+            &[Ecosystem::JavaScript],
+            &["security".to_string(), "gdpr".to_string()],
+        );
+        assert!(content.contains("GDPR/RGPD discipline (active)"));
+        assert!(content.contains("consent"));
+        assert!(content.contains("CMP"));
+        assert!(content.contains("ai-rsk scan --gdpr"));
+    }
+
+    #[test]
+    fn test_discipline_no_gdpr_without_profile() {
+        let content = generate_discipline_file(&[Ecosystem::JavaScript], &["security".to_string()]);
+        assert!(!content.contains("GDPR/RGPD discipline"));
+    }
+
+    #[test]
+    fn test_security_rules_version_dynamic() {
+        let content = generate_security_rules(&["security".to_string()]);
+        assert!(content.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
     }
 
     // ─────────────────────────────────────────────────
@@ -1290,10 +1735,11 @@ mod tests {
         let report = run_init(dir.path()).expect("init failed");
 
         assert!(report.ecosystems.is_empty());
-        // SECURITY_RULES.md + CLAUDE.md + .gitignore
-        assert_eq!(report.created.len(), 3);
+        // SECURITY_RULES.md + CLAUDE.md + .gitignore + ai-rsk.config.yaml
+        assert_eq!(report.created.len(), 4);
         assert!(dir.path().join("SECURITY_RULES.md").exists());
         assert!(dir.path().join("CLAUDE.md").exists());
+        assert!(dir.path().join("ai-rsk.config.yaml").exists());
     }
 
     #[test]
@@ -1324,7 +1770,7 @@ mod tests {
         .expect("Failed to write");
 
         let report1 = run_init(dir.path()).expect("init failed");
-        assert_eq!(report1.created.len(), 3); // SECURITY_RULES.md + CLAUDE.md + .gitignore
+        assert_eq!(report1.created.len(), 4); // SECURITY_RULES.md + CLAUDE.md + .gitignore + ai-rsk.config.yaml
 
         // Second run: SECURITY_RULES.md skipped (warning), CLAUDE.md already up to date (no warning)
         let report2 = run_init(dir.path()).expect("second init failed");
@@ -1389,8 +1835,8 @@ mod tests {
         fs::create_dir(dir.path().join(".github")).expect("Failed to create .github");
 
         let report = run_init(dir.path()).expect("init failed");
-        // SECURITY_RULES.md + copilot-instructions.md + .gitignore (no CLAUDE.md - .github detected, not .claude)
-        assert_eq!(report.created.len(), 3);
+        // SECURITY_RULES.md + copilot-instructions.md + .gitignore + ai-rsk.config.yaml (no CLAUDE.md - .github detected, not .claude)
+        assert_eq!(report.created.len(), 4);
         assert!(dir.path().join("SECURITY_RULES.md").exists());
         assert!(dir.path().join(".github/copilot-instructions.md").exists());
         assert!(!dir.path().join("CLAUDE.md").exists());
@@ -1480,8 +1926,8 @@ mod tests {
 
         let report = run_init(dir.path()).expect("init failed");
 
-        // Should have: SECURITY_RULES.md + CLAUDE.md + .gitignore + pre-commit + pre-push = 5
-        assert_eq!(report.created.len(), 5);
+        // Should have: SECURITY_RULES.md + CLAUDE.md + .gitignore + ai-rsk.config.yaml + pre-commit + pre-push = 6
+        assert_eq!(report.created.len(), 6);
         assert!(dir.path().join(".git/hooks/pre-commit").exists());
         assert!(dir.path().join(".git/hooks/pre-push").exists());
 

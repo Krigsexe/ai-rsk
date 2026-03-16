@@ -118,6 +118,7 @@ const SCAN_EXCLUDED_DIRS: &[&str] = &[
     ".git",
     "dist",
     "build",
+    "bundle",
     "out",
     "__pycache__",
     ".pytest_cache",
@@ -136,7 +137,11 @@ const SCAN_EXCLUDED_DIRS: &[&str] = &[
 /// Uses --exclude for each directory in SCAN_EXCLUDED_DIRS to avoid scanning third-party code
 /// and build artifacts (main cause of Semgrep timeouts on large projects).
 /// Verified: semgrep.dev/docs/cli-reference
-pub fn run_semgrep(project_path: &Path, timeout_secs: u64) -> Result<Vec<Finding>> {
+pub fn run_semgrep(
+    project_path: &Path,
+    timeout_secs: u64,
+    exclude_rules: &[String],
+) -> Result<Vec<Finding>> {
     let mut args: Vec<String> = vec![
         "scan".into(),
         "--error".into(),
@@ -146,6 +151,10 @@ pub fn run_semgrep(project_path: &Path, timeout_secs: u64) -> Result<Vec<Finding
 
     for dir in SCAN_EXCLUDED_DIRS {
         args.push(format!("--exclude={}", dir));
+    }
+
+    for rule in exclude_rules {
+        args.push(format!("--exclude-rule={}", rule));
     }
 
     args.push(".".into());
@@ -309,11 +318,19 @@ pub fn run_osv_scanner(project_path: &Path, timeout_secs: u64) -> Result<Vec<Fin
 /// Exit 0 = clean, exit 1 = findings, exit 2+ = error.
 pub fn run_knip(project_path: &Path, timeout_secs: u64) -> Result<Vec<Finding>> {
     // knip is optional - if not installed, skip silently (analyze.rs has fallback)
-    if which::which("knip").is_err() {
-        return Ok(vec![]);
-    }
+    // Check both global PATH and local node_modules/.bin/ (npm install -D knip)
+    let knip_binary = if which::which("knip").is_ok() {
+        "knip".to_string()
+    } else {
+        let local_knip = project_path.join("node_modules/.bin/knip");
+        if local_knip.exists() {
+            local_knip.to_string_lossy().to_string()
+        } else {
+            return Ok(vec![]);
+        }
+    };
 
-    let result = run_command("knip", &["--no-progress"], project_path, timeout_secs)?;
+    let result = run_command(&knip_binary, &["--no-progress"], project_path, timeout_secs)?;
 
     match result.exit_code {
         0 => Ok(vec![]),
@@ -340,8 +357,9 @@ pub fn run_knip(project_path: &Path, timeout_secs: u64) -> Result<Vec<Finding>> 
 }
 
 /// Check if knip is available (used by analyze.rs to decide whether to run fallback detection).
-pub fn knip_available() -> bool {
-    which::which("knip").is_ok()
+/// Checks both global PATH and local node_modules/.bin/.
+pub fn knip_available(project_path: &Path) -> bool {
+    which::which("knip").is_ok() || project_path.join("node_modules/.bin/knip").exists()
 }
 
 /// Run all external tools on the project.
@@ -351,10 +369,11 @@ pub fn run_external_tools(
     project_path: &Path,
     ecosystems: &[Ecosystem],
     timeout_secs: u64,
+    semgrep_exclude_rules: &[String],
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    match run_semgrep(project_path, timeout_secs) {
+    match run_semgrep(project_path, timeout_secs, semgrep_exclude_rules) {
         Ok(f) => findings.extend(f),
         Err(e) => findings.push(Finding {
             severity: Severity::Block,

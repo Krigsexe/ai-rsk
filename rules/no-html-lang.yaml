@@ -1,0 +1,37 @@
+id: NO_HTML_LANG
+version: 2
+severity: WARN
+category: a11y
+cwe:
+  - "CWE-1059"
+source:
+  name: "WCAG 2.2 Success Criterion 3.1.1 — Language of Page"
+  quote: "The default human language of each Web page can be programmatically determined."
+  note: "Without a lang attribute on <html>, screen readers cannot determine the correct pronunciation rules. This affects all assistive technology users. WCAG 2.2 Level A requirement."
+  verified: true
+  verified_date: "2026-03-16"
+languages:
+  - html
+file_patterns:
+  - "*.html"
+  - "*.htm"
+patterns:
+  # Match <html> or <html with attributes but without lang
+  - "<html[\\s>]"
+negation: true
+negation_pattern: "<html[^>]*\\blang\\s*="
+agnostic_negation: false
+case_insensitive: true
+message: "HTML tag without lang attribute. Screen readers need the lang attribute to determine pronunciation rules. Without it, assistive technology may mispronounce all content on the page. WCAG 2.2 Level A requirement."
+fix: |
+  Add the lang attribute to your <html> tag:
+
+    <!-- WRONG: -->
+    <html>
+
+    <!-- RIGHT: -->
+    <html lang="en">
+    <html lang="fr">
+    <html lang="de">
+
+  Use the correct BCP 47 language tag for your content's primary language.

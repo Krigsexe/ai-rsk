@@ -1,0 +1,56 @@
+id: LLM_NO_TOKEN_LIMIT
+version: 1
+severity: WARN
+category: ai-act
+cwe:
+  - "CWE-770"
+source:
+  name: "EU AI Act + OWASP LLM Top 10:2025 — LLM04 Denial of Service"
+  quote: "An attacker can craft inputs that cause the LLM to consume an excessive amount of resources, resulting in service degradation or high costs. Setting token limits prevents unbounded resource consumption."
+  note: "Without max_tokens/maxTokens, a single malicious prompt can generate unlimited output, causing cost overrun (API billing) and potential denial of service. EU AI Act requires providers to ensure AI systems operate within defined parameters."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+  - python
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.mjs"
+  - "*.cjs"
+  - "*.py"
+patterns:
+  # OpenAI calls without max_tokens
+  - "openai\\.(chat\\.completions|completions)\\.create\\s*\\("
+  - "ChatCompletion\\.create\\s*\\("
+  # Anthropic calls without max_tokens
+  - "anthropic\\.messages\\.create\\s*\\("
+  - "client\\.messages\\.create\\s*\\("
+  # Google calls
+  - "model\\.generateContent\\s*\\("
+negation: true
+negation_pattern: "max_tokens|maxTokens|max_output_tokens|maxOutputTokens|token_limit|tokenLimit"
+case_insensitive: false
+message: "LLM API call detected without token limit (max_tokens/maxTokens). Without a limit, a single request can generate unlimited output, causing cost overrun and potential denial of service. OWASP LLM Top 10:2025 lists this as LLM04."
+fix: |
+  Always set a token limit on LLM API calls:
+
+    // OpenAI:
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [...],
+      max_tokens: 1000,  // Limit output length
+    });
+
+    // Anthropic:
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,  // Required by Anthropic API
+      messages: [...],
+    });
+
+  Choose a max_tokens value appropriate for your use case.
+  Monitor actual usage and adjust limits as needed.

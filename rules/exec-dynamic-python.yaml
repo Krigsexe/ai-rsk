@@ -1,0 +1,55 @@
+id: EXEC_DYNAMIC_PYTHON
+version: 1
+severity: BLOCK
+cwe:
+  - "CWE-95"
+source:
+  name: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+  quote: "The product receives input from an upstream component, but it does not neutralize or incorrectly neutralizes code syntax before inserting the input into an executable resource, such as a library, configuration file, or template."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - python
+file_patterns:
+  - "*.py"
+patterns:
+  # Python exec() builtin with variable argument
+  - "^\\s*exec\\s*\\(\\s*[a-zA-Z_]"
+  # Python eval() with variable argument
+  - "^\\s*eval\\s*\\(\\s*[a-zA-Z_]"
+  # Python eval/exec with f-string
+  - "eval\\s*\\(\\s*f['\"]"
+  - "exec\\s*\\(\\s*f['\"]"
+case_insensitive: false
+exclude_paths:
+  - "test/"
+  - "tests/"
+  - "__tests__/"
+  - "spec/"
+  - "node_modules/"
+  - "vendor/"
+  - ".venv/"
+  - "venv/"
+message: "Python exec()/eval() with dynamic input detected. If the input comes from a user, database, or external source, an attacker can execute arbitrary Python code on your server. This is one of the most dangerous vulnerabilities possible."
+fix: |
+  NEVER use exec/eval with dynamic input in Python.
+  Alternatives:
+    # WRONG:
+    exec(user_code)
+    eval(user_expression)
+
+    # RIGHT - use ast.literal_eval for safe evaluation of literals:
+    import ast
+    data = ast.literal_eval(user_input)
+
+    # RIGHT - use a safe expression parser for math:
+    from simpleeval import simple_eval
+    result = simple_eval(user_expression)
+
+    # RIGHT - use a whitelist for dynamic behavior:
+    actions = {'add': add_fn, 'remove': remove_fn}
+    fn = actions.get(user_choice)
+    if fn:
+        fn()
+
+  If you absolutely must evaluate dynamic code, use a sandboxed environment (RestrictedPython).

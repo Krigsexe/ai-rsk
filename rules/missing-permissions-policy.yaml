@@ -1,0 +1,37 @@
+id: MISSING_PERMISSIONS_POLICY
+version: 1
+severity: WARN
+cwe:
+  - "CWE-1021"
+source:
+  name: "OWASP Top 10:2025 A02 Security Misconfiguration + OWASP Secure Headers Project"
+  quote: "Permissions-Policy specifies which browser features and APIs can be used by the page. Disabling unnecessary features reduces the attack surface and limits what malicious scripts can do if injected via XSS."
+  note: "Only 4% of websites implement Permissions-Policy (NATO/Spanish JCDC study). Disabling camera, microphone, geolocation, payment, and USB by default prevents silent data exfiltration via XSS. Also important for GDPR compliance as these APIs access sensitive user data."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  - "(app|server|router)\\.(use|get|listen)\\s*\\("
+negation: true
+negation_pattern: "permissions-policy|permissionsPolicy|Permissions-Policy|feature-policy|featurePolicy|helmet\\s*\\("
+case_insensitive: true
+message: "Server code detected without Permissions-Policy header. Without this header, any script (including XSS payloads) can access powerful browser APIs like camera, microphone, geolocation, and payment. Only 4% of websites implement this header. OWASP Top 10:2025 lists security misconfiguration as A02."
+fix: |
+  Add Permissions-Policy header. Using helmet (recommended):
+    app.use(helmet());
+  Or manually:
+    app.use((req, res, next) => {
+      res.setHeader('Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
+      );
+      next();
+    });
+  Syntax: feature=() means disabled. feature=(self) means only same-origin.
+  Disable all features you don't need. Enable only what your app requires.

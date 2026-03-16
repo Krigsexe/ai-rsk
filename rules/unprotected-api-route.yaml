@@ -1,0 +1,55 @@
+id: UNPROTECTED_API_ROUTE
+version: 1
+severity: WARN
+category: security
+cwe:
+  - "CWE-862"
+source:
+  name: "CWE-862: Missing Authorization"
+  quote: "The product does not perform an authorization check when an actor attempts to access a resource or perform an action."
+  note: "#1 vulnerability in AI-generated code (DryRun Security, March 2026). All 3 major AI coding agents (Claude, Codex, Gemini) produced unauthenticated endpoints on sensitive operations."
+  verified: true
+  verified_date: "2026-03-15"
+languages:
+  - javascript
+  - typescript
+file_patterns:
+  - "*.js"
+  - "*.ts"
+  - "*.mjs"
+  - "*.cjs"
+patterns:
+  # Sensitive routes: admin, delete, users with params, settings, account, billing
+  # Must be POST/PUT/PATCH/DELETE (mutating operations) - GET is often intentionally public
+  - "(app|router)\\.(post|put|patch|delete)\\s*\\(\\s*['\"`][^'\"`]*/(admin|dashboard|settings|account|billing|payment)"
+  - "(app|router)\\.(post|put|patch|delete)\\s*\\(\\s*['\"`][^'\"`]*/users?/:\\w"
+  - "(app|router)\\.delete\\s*\\(\\s*['\"`][^'\"`]*/(users?|posts?|comments?|orders?|products?|items?)"
+negation: true
+negation_pattern: "authMiddleware|isAuthenticated|requireAuth|protect|ensureAuth|passport\\.authenticate|jwt\\.verify|verifyToken|checkAuth|isAdmin|requireAdmin|authenticate|authorized|guardMiddleware|auth\\s*\\("
+case_insensitive: false
+exclude_paths:
+  - "src/"
+  - "pages/"
+  - "components/"
+  - "views/"
+  - "client/"
+  - "frontend/"
+  - "public/"
+  - "static/"
+  - "test/"
+  - "tests/"
+message: "Sensitive API route detected without visible authentication middleware. This is the #1 vulnerability in AI-generated code (2026): unauthenticated endpoints on destructive or sensitive operations. An attacker can directly access admin panels, delete resources, or modify user data without logging in."
+fix: |
+  Add authentication middleware to ALL sensitive routes:
+    // WRONG - no auth check:
+    app.delete('/users/:id', (req, res) => { ... });
+
+    // RIGHT - auth middleware before handler:
+    app.delete('/users/:id', authMiddleware, (req, res) => { ... });
+
+    // RIGHT - global auth on router:
+    router.use(authMiddleware);
+    router.delete('/users/:id', (req, res) => { ... });
+
+  EVERY route that modifies data, accesses user info, or performs admin actions
+  MUST have server-side authentication. Client-side checks are NOT sufficient.
