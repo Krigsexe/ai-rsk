@@ -18,14 +18,202 @@ pub fn check_for_update() {
     if let Ok(Some(latest)) = handle.join() {
         if is_newer(&latest, CURRENT_VERSION) {
             eprintln!(
-                "  {} ai-rsk {} is available (current: {}). Update: {}",
+                "  {} ai-rsk {} is available (current: {}). Run: {}",
                 "!".yellow(),
                 latest.bold(),
                 CURRENT_VERSION,
-                "cargo install ai-rsk".cyan()
+                "ai-rsk update".cyan()
             );
         }
     }
+}
+
+/// Update ai-rsk to the latest version.
+/// Tries cargo first, then falls back to GitHub Releases binary download.
+pub fn run_self_update() {
+    println!(
+        "  {} Current version: {}",
+        "i".cyan(),
+        CURRENT_VERSION.bold()
+    );
+
+    // Check latest version on crates.io
+    print!("  Checking for updates... ");
+    let latest = match fetch_latest_version() {
+        Some(v) => v,
+        None => {
+            println!("{}", "failed".red());
+            eprintln!(
+                "  {} Could not reach crates.io. Check your internet connection.",
+                "!".red()
+            );
+            std::process::exit(1);
+        }
+    };
+
+    if !is_newer(&latest, CURRENT_VERSION) {
+        println!("{}", "up to date".green().bold());
+        println!(
+            "  {} ai-rsk {} is already the latest version.",
+            "✓".green(),
+            CURRENT_VERSION
+        );
+        return;
+    }
+
+    println!("{} available", latest.green().bold());
+
+    // Try cargo install first
+    if which::which("cargo").is_ok() {
+        println!("  {} Updating via cargo...", "→".cyan());
+        let status = std::process::Command::new("cargo")
+            .args(["install", "ai-rsk"])
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!(
+                    "\n  {} ai-rsk updated to {}",
+                    "✓".green(),
+                    latest.bold()
+                );
+                return;
+            }
+            _ => {
+                eprintln!("  {} cargo install failed. Trying GitHub Releases...", "!".yellow());
+            }
+        }
+    }
+
+    // Fallback: download from GitHub Releases
+    println!("  {} Downloading from GitHub Releases...", "→".cyan());
+    let gh_tag = format!("v{}", latest);
+    let os = if cfg!(target_os = "linux") {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(target_os = "macos") {
+        "x86_64-apple-darwin"
+    } else if cfg!(target_os = "windows") {
+        "x86_64-pc-windows-msvc"
+    } else {
+        eprintln!("  {} Unsupported platform for auto-update.", "!".red());
+        eprintln!("  Install manually: cargo install ai-rsk");
+        std::process::exit(1);
+    };
+
+    let ext = if cfg!(target_os = "windows") {
+        ".zip"
+    } else {
+        ".tar.gz"
+    };
+    let asset = format!("ai-rsk-{}{}", os, ext);
+    let url = format!(
+        "https://github.com/Krigsexe/ai-rsk/releases/download/{}/{}",
+        gh_tag, asset
+    );
+
+    let tmp_dir = std::env::temp_dir().join(format!("ai-rsk-update-{}", std::process::id()));
+    if std::fs::create_dir_all(&tmp_dir).is_err() {
+        eprintln!("  {} Cannot create temp directory.", "!".red());
+        std::process::exit(1);
+    }
+
+    let dl_path = tmp_dir.join(&asset);
+    let dl_status = std::process::Command::new("curl")
+        .args([
+            "-sfL",
+            "--progress-bar",
+            "-o",
+            &dl_path.to_string_lossy(),
+            &url,
+        ])
+        .status();
+
+    if dl_status.map(|s| s.success()).unwrap_or(false) && dl_path.exists() {
+        // Extract
+        let extract_ok = if asset.ends_with(".tar.gz") {
+            std::process::Command::new("tar")
+                .args(["-xzf", &dl_path.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        } else {
+            // zip on Windows
+            std::process::Command::new("tar")
+                .args(["-xf", &dl_path.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+
+        if extract_ok {
+            let bin_name = if cfg!(target_os = "windows") {
+                "ai-rsk.exe"
+            } else {
+                "ai-rsk"
+            };
+            let extracted = tmp_dir.join(bin_name);
+            if extracted.exists() {
+                // Find where the current binary is
+                if let Ok(current_exe) = std::env::current_exe() {
+                    // Try to replace the current binary
+                    if std::fs::copy(&extracted, &current_exe).is_ok() {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(
+                                &current_exe,
+                                std::fs::Permissions::from_mode(0o755),
+                            );
+                        }
+                        println!(
+                            "  {} ai-rsk updated to {}",
+                            "✓".green(),
+                            latest.bold()
+                        );
+                        std::fs::remove_dir_all(&tmp_dir).ok();
+                        return;
+                    }
+                }
+
+                // Cannot replace in-place, copy to ~/.local/bin/
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_default();
+                if !home.is_empty() {
+                    let local_bin = std::path::PathBuf::from(&home).join(".local").join("bin");
+                    std::fs::create_dir_all(&local_bin).ok();
+                    let dest = local_bin.join(bin_name);
+                    if std::fs::copy(&extracted, &dest).is_ok() {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(
+                                &dest,
+                                std::fs::Permissions::from_mode(0o755),
+                            );
+                        }
+                        println!(
+                            "  {} ai-rsk {} installed to {}",
+                            "✓".green(),
+                            latest.bold(),
+                            dest.display()
+                        );
+                        std::fs::remove_dir_all(&tmp_dir).ok();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Cleanup
+    std::fs::remove_dir_all(&tmp_dir).ok();
+    eprintln!("  {} Auto-update failed.", "!".red());
+    eprintln!(
+        "  Install manually: {}",
+        "cargo install ai-rsk".cyan()
+    );
+    std::process::exit(1);
 }
 
 /// Fetch the latest version string from crates.io API.

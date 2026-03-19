@@ -154,9 +154,10 @@ impl ScanResult {
 
         let mut report = String::new();
         report.push_str("# ai-rsk Security Report\n\n");
+        let score = self.security_score();
         report.push_str(&format!(
-            "**Status: {}** | Exit code: {} | Mode: {}\n",
-            status, exit, mode
+            "**Status: {}** | **Security Score: {}/100** | Exit code: {} | Mode: {}\n",
+            status, score, exit, mode
         ));
         report.push_str(&format!(
             "**Scan date:** {} | **BLOCK:** {} | **WARN:** {} | **ADVISE:** {}\n\n",
@@ -214,10 +215,20 @@ impl ScanResult {
                         fix,
                     } => {
                         if !cwe.is_empty() {
+                            let cwe_links: Vec<String> = cwe
+                                .iter()
+                                .map(|c| {
+                                    let id = c.strip_prefix("CWE-").unwrap_or(c);
+                                    format!(
+                                        "[{}](https://cwe.mitre.org/data/definitions/{}.html)",
+                                        c, id
+                                    )
+                                })
+                                .collect();
                             report.push_str(&format!(
-                                "**Rule:** {} ({})\n",
+                                "**Rule:** {} | {}\n",
                                 rule_id,
-                                cwe.join(", ")
+                                cwe_links.join(", ")
                             ));
                         } else {
                             report.push_str(&format!("**Rule:** {}\n", rule_id));
@@ -272,6 +283,16 @@ impl ScanResult {
         Ok(())
     }
 
+    /// Calculate a security score from 0 to 100.
+    /// 100 = no findings, penalties: BLOCK -15, WARN -5, ADVISE -1.
+    pub fn security_score(&self) -> u32 {
+        let blocks = self.count_by_severity(Severity::Block) as u32;
+        let warns = self.count_by_severity(Severity::Warn) as u32;
+        let advises = self.count_by_severity(Severity::Advise) as u32;
+        let penalty = blocks * 15 + warns * 5 + advises;
+        100u32.saturating_sub(penalty)
+    }
+
     /// Determine exit code based on findings and strictness flags.
     /// Exit 0 = pass, 1 = blocked, 2 = internal error (handled elsewhere).
     pub fn exit_code(&self, strict: bool, full: bool) -> i32 {
@@ -290,6 +311,74 @@ impl ScanResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_security_score_perfect() {
+        let result = ScanResult::new();
+        assert_eq!(result.security_score(), 100);
+    }
+
+    #[test]
+    fn test_security_score_with_findings() {
+        let mut result = ScanResult::new();
+        // 2 BLOCK (-30), 1 WARN (-5), 3 ADVISE (-3) = 100-38 = 62
+        for _ in 0..2 {
+            result.findings.push(Finding {
+                severity: Severity::Block,
+                kind: FindingKind::ToolMissing {
+                    tool_name: "test".to_string(),
+                    install_hint: "test".to_string(),
+                },
+                file: None,
+                line: None,
+                message: "test".to_string(),
+            });
+        }
+        result.findings.push(Finding {
+            severity: Severity::Warn,
+            kind: FindingKind::RuleViolation {
+                rule_id: "TEST".to_string(),
+                cwe: vec![],
+                code_snippet: String::new(),
+                fix: String::new(),
+            },
+            file: None,
+            line: None,
+            message: "test".to_string(),
+        });
+        for _ in 0..3 {
+            result.findings.push(Finding {
+                severity: Severity::Advise,
+                kind: FindingKind::ProjectAdvice {
+                    advice_id: "TEST".to_string(),
+                    question: "test?".to_string(),
+                },
+                file: None,
+                line: None,
+                message: "test".to_string(),
+            });
+        }
+        assert_eq!(result.security_score(), 62);
+    }
+
+    #[test]
+    fn test_security_score_floor_at_zero() {
+        let mut result = ScanResult::new();
+        // 10 BLOCK = -150, should floor at 0
+        for _ in 0..10 {
+            result.findings.push(Finding {
+                severity: Severity::Block,
+                kind: FindingKind::ToolMissing {
+                    tool_name: "test".to_string(),
+                    install_hint: "test".to_string(),
+                },
+                file: None,
+                line: None,
+                message: "test".to_string(),
+            });
+        }
+        assert_eq!(result.security_score(), 0);
+    }
 
     #[test]
     fn test_exit_code_no_findings() {

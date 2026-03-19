@@ -25,7 +25,30 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let cli = Cli::parse();
+    // Default command: `ai-rsk` without arguments = `ai-rsk scan`
+    // If parsing fails (no subcommand given), inject "scan" and retry.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // DisplayHelp with no subcommand = user typed just `ai-rsk`
+            // DisplayHelp from --help / DisplayVersion from --version = let clap handle it
+            if e.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                || e.kind() == clap::error::ErrorKind::MissingSubcommand
+            {
+                // Check if user explicitly asked for help (--help / -h)
+                let raw_args: Vec<String> = std::env::args().collect();
+                let has_help = raw_args.iter().any(|a| a == "--help" || a == "-h");
+                if has_help {
+                    e.exit();
+                }
+                let mut args = raw_args;
+                args.insert(1, "scan".to_string());
+                Cli::parse_from(args)
+            } else {
+                e.exit();
+            }
+        }
+    };
 
     match cli.command {
         Commands::Scan {
@@ -244,7 +267,8 @@ fn run() -> Result<()> {
                 }
             } else {
                 if !json {
-                    println!("\n  {}", "Running external tools...".dimmed());
+                    print!("\n  {} ", "[1/3]".cyan());
+                    println!("Running external tools...");
                 }
                 let tool_findings = runner::run_external_tools(
                     &path,
@@ -282,12 +306,13 @@ fn run() -> Result<()> {
                         if !json {
                             if disabled_count > 0 {
                                 println!(
-                                    "  Couche 1: {} rules loaded ({} disabled by config)",
+                                    "  {} Scanning {} rules ({} disabled by config)",
+                                    "[2/3]".cyan(),
                                     active_rules.len(),
                                     disabled_count
                                 );
                             } else {
-                                println!("  Couche 1: {} rules loaded", active_rules.len());
+                                println!("  {} Scanning {} rules...", "[2/3]".cyan(), active_rules.len());
                             }
                         }
                         match rules::scan_files(&path, &active_rules, &config.exclude) {
@@ -332,7 +357,8 @@ fn run() -> Result<()> {
 
             // Step 5: ANALYZE project structure (couche 3 - ADVISE)
             if !json {
-                println!("\n  {}", "Analyzing project structure...".dimmed());
+                print!("\n  {} ", "[3/3]".cyan());
+                println!("Analyzing project structure...");
             }
             let analysis_findings = analyze::analyze_project(&path, &ecosystems, &active_profiles);
             let analysis_count = analysis_findings.len();
@@ -356,6 +382,7 @@ fn run() -> Result<()> {
             let blocks = result.count_by_severity(types::Severity::Block);
             let warns = result.count_by_severity(types::Severity::Warn);
             let advises = result.count_by_severity(types::Severity::Advise);
+            let score = result.security_score();
             let exit = result.exit_code(strict, full);
 
             // Write persistent report to .ai-rsk/report.md
@@ -387,6 +414,7 @@ fn run() -> Result<()> {
                     "result": if exit == 0 { "PASS" } else { "BLOCKED" },
                     "exit_code": exit,
                     "mode": mode,
+                    "security_score": score,
                     "summary": {
                         "block": blocks,
                         "warn": warns,
@@ -432,13 +460,28 @@ fn run() -> Result<()> {
                             ..
                         } => {
                             if !cwe.is_empty() {
-                                println!("  {} ({})", rule_id, cwe.join(", "));
+                                let cwe_links: Vec<String> = cwe
+                                    .iter()
+                                    .map(|c| {
+                                        let id = c.strip_prefix("CWE-").unwrap_or(c);
+                                        format!(
+                                            "{} (https://cwe.mitre.org/data/definitions/{}.html)",
+                                            c, id
+                                        )
+                                    })
+                                    .collect();
+                                println!("  Rule: {}", rule_id);
+                                for link in &cwe_links {
+                                    println!("  Ref:  {}", link.dimmed());
+                                }
+                            } else {
+                                println!("  Rule: {}", rule_id);
                             }
                             if !code_snippet.is_empty() {
                                 println!("  Code: {}", code_snippet);
                             }
                             if !fix.is_empty() {
-                                println!("  Fix: {}", fix);
+                                println!("  Fix:  {}", fix);
                             }
                         }
                         types::FindingKind::ProjectAdvice { question, .. } => {
@@ -456,6 +499,16 @@ fn run() -> Result<()> {
                     "\n{}",
                     "===================================================".dimmed()
                 );
+                // Security score with color based on value
+                let score_colored = if score >= 80 {
+                    format!("{}/100", score).green().bold()
+                } else if score >= 50 {
+                    format!("{}/100", score).yellow().bold()
+                } else {
+                    format!("{}/100", score).red().bold()
+                };
+                println!("Security Score: {}", score_colored);
+
                 if exit == 0 {
                     println!(
                         "Result: {} ({}B {}W {}A)",
@@ -489,6 +542,40 @@ fn run() -> Result<()> {
                     "{}",
                     "===================================================".dimmed()
                 );
+
+                // Guidance: tell the user what to do next
+                if blocks > 0 {
+                    println!(
+                        "\n  {} Fix the {} {} first - the build is blocked until they are resolved.",
+                        "Next:".bold(),
+                        blocks,
+                        if blocks == 1 { "BLOCK finding" } else { "BLOCK findings" }
+                    );
+                    if warns > 0 {
+                        println!(
+                            "  Then address the {} {} (they become BLOCK with --strict).",
+                            warns,
+                            if warns == 1 { "WARN" } else { "WARNs" }
+                        );
+                    }
+                    println!(
+                        "  After fixing, run {} to verify.",
+                        "ai-rsk scan".cyan()
+                    );
+                } else if warns > 0 && strict {
+                    println!(
+                        "\n  {} Fix the {} {} - strict mode is active.",
+                        "Next:".bold(),
+                        warns,
+                        if warns == 1 { "WARN finding" } else { "WARN findings" }
+                    );
+                } else if exit == 0 {
+                    println!(
+                        "\n  {} All clear. Report saved to {}",
+                        "✓".green(),
+                        ".ai-rsk/report.md".bold()
+                    );
+                }
             }
 
             process::exit(exit);
@@ -497,6 +584,10 @@ fn run() -> Result<()> {
         Commands::Init { path } => {
             let path = path.canonicalize().unwrap_or(path);
             init::run_init(&path)?;
+        }
+
+        Commands::Update => {
+            version::run_self_update();
         }
 
         Commands::Check { path } => {

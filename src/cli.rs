@@ -5,9 +5,22 @@ use std::path::PathBuf;
 #[command(
     name = "ai-rsk",
     version,
-    about = "AI Rust Security Keeper - all-in-one LLM security gate",
-    long_about = "Blocks the build until security flaws are fixed, forces external tool installation, \
-                  analyzes project stack, and enforces LLM discipline."
+    about = "Security gate for AI-generated code. Scans, blocks, and educates.",
+    long_about = "ai-rsk scans your project for security vulnerabilities, missing tools, and bad practices.\n\
+                  It blocks the build until every issue is fixed, so AI-generated code is safe to deploy.\n\n\
+                  Quick start:\n  \
+                    1. ai-rsk init     Set up your project (hooks, config, LLM rules)\n  \
+                    2. ai-rsk          Scan for issues (same as 'ai-rsk scan')\n  \
+                    3. ai-rsk update   Keep ai-rsk up to date\n\n\
+                  No subcommand needed: running 'ai-rsk' alone scans the current directory.",
+    after_help = "Examples:\n  \
+                    ai-rsk                Scan current directory\n  \
+                    ai-rsk scan --strict  Promote warnings to blockers\n  \
+                    ai-rsk scan --all     Enable all compliance profiles\n  \
+                    ai-rsk scan --json    JSON output for CI/CD\n  \
+                    ai-rsk init           Set up security gate in your project\n  \
+                    ai-rsk update         Update to latest version\n  \
+                    ai-rsk check          Show installed tools and versions"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -17,6 +30,17 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Scan the project for security issues, missing tools, and technical debt
+    #[command(
+        after_help = "Examples:\n  \
+                        ai-rsk scan                  Scan current directory\n  \
+                        ai-rsk scan /path/to/project Scan a specific path\n  \
+                        ai-rsk scan --strict         Warnings become blockers\n  \
+                        ai-rsk scan --full           Everything becomes a blocker\n  \
+                        ai-rsk scan --json           Machine-readable output for CI/CD\n  \
+                        ai-rsk scan --gdpr           Add GDPR compliance checks\n  \
+                        ai-rsk scan --all            All profiles (security+gdpr+ai-act+seo+a11y)\n\n\
+                      Tip: just run 'ai-rsk' without arguments to scan the current directory."
+    )]
     Scan {
         /// Path to scan (defaults to current directory)
         #[arg(default_value = ".")]
@@ -60,6 +84,13 @@ pub enum Commands {
     },
 
     /// Initialize ai-rsk in the current project (generate config, hooks, LLM rules)
+    #[command(
+        after_help = "Examples:\n  \
+                        ai-rsk init                  Set up the current project\n  \
+                        ai-rsk init /path/to/project Set up a specific project\n\n\
+                      This creates: config file, security rules, LLM discipline files, git hooks.\n\
+                      Run this once when you start using ai-rsk on a project."
+    )]
     Init {
         /// Path to initialize (defaults to current directory)
         #[arg(default_value = ".")]
@@ -67,11 +98,22 @@ pub enum Commands {
     },
 
     /// Check which external tools are installed and their versions
+    #[command(
+        after_help = "Shows the status of all tools ai-rsk needs (semgrep, gitleaks, osv-scanner, etc.).\n\
+                      Useful for debugging when a scan fails because of a missing tool."
+    )]
     Check {
         /// Path to check ecosystem detection (defaults to current directory)
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+
+    /// Update ai-rsk to the latest version
+    #[command(
+        after_help = "Checks crates.io for a newer version and installs it.\n\
+                      Uses cargo if available, otherwise downloads from GitHub Releases."
+    )]
+    Update,
 }
 
 #[cfg(test)]

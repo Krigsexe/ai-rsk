@@ -1,0 +1,9 @@
+# Gitleaks false positives for ai-rsk project.
+# These are test fixtures and rule examples, not real secrets.
+
+# Test fixture: fake Stripe token used to test secret detection
+b0b13dd2eb93cb201ff38f97cdfe30eca57571c0:tests/fixtures/vulnerable/real-world-patterns.js:stripe-access-token:25
+
+# Rule examples: fake API keys shown in YAML rule documentation
+5bf41cf40ac8bf476370232d1b36ef519b569693:rules/hardcoded-secret.yaml:generic-api-key:40
+5bf41cf40ac8bf476370232d1b36ef519b569693:rules/hardcoded-secret.yaml:generic-api-key:55

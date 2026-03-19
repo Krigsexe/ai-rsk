@@ -27,7 +27,7 @@
   </a>
 </p>
 
-ai-rsk blocks your build until security issues are fixed. One Rust binary. Three external tools. 67 built-in rules. 5 compliance profiles (security, GDPR, AI Act, SEO, accessibility). Tree-sitter AST filter for context-aware detection. Your AI can't deploy insecure code because the build won't pass.
+ai-rsk blocks your build until security issues are fixed. One Rust binary. 67 built-in rules. 5 compliance profiles (security, GDPR, AI Act, SEO, accessibility). Tree-sitter AST filter for context-aware detection. Auto-installs and manages external security tools (Semgrep, Gitleaks, osv-scanner, knip). Your AI can't deploy insecure code because the build won't pass.
 
 ## The Problem
 
@@ -51,43 +51,46 @@ ai-rsk makes this impossible. The build doesn't pass. The LLM is forced to fix t
 ```
 $ ai-rsk scan --all
 
-ai-rsk - Security Gate + Project Analysis
+ai-rsk v0.7.1 - Security Gate + Project Analysis
 ===================================================
   Profiles: security, gdpr, ai-act, seo, a11y
   Ecosystems: JavaScript/TypeScript
-  ✓ semgrep 1.155.0
+  ✓ semgrep 1.156.0
   ✓ gitleaks 8.30.0
   ✓ osv-scanner 2.3.3
-  Couche 1: 55 rules loaded
-  Couche 3: 9 advisory findings
+  ✓ knip 5.88.1
 ===================================================
 
-[BLOCK] TOKEN_IN_LOCALSTORAGE (CWE-922)
+  [1/3] Running external tools...
+  [2/3] Scanning 67 rules...
+  [3/3] Analyzing project structure...
+
+[BLOCK] Token stored in localStorage - accessible to any XSS attack.
   File: src/auth.js:42
+  Rule: TOKEN_IN_LOCALSTORAGE
+  Ref:  CWE-922 (https://cwe.mitre.org/data/definitions/922.html)
   Code: localStorage.setItem('access_token', response.data.token)
   Fix:  Move token to HttpOnly cookie server-side.
 
-[BLOCK] TRACKING_NO_CONSENT (CWE-359)
-  File: src/analytics.js:3
-  Code: gtag('config', 'G-XXXXXXXXXX');
-  Fix:  Add Google Consent Mode v2 BEFORE gtag('config').
-
-[WARN] CORS_WILDCARD (CWE-942)
+[WARN] CORS allows any origin - any website can call your API.
   File: src/app.js:12
+  Rule: CORS_WILDCARD
+  Ref:  CWE-942 (https://cwe.mitre.org/data/definitions/942.html)
   Code: app.use(cors());
   Fix:  Restrict CORS to specific trusted origins.
 
-[WARN] No cookie banner/CMP found.
-  Install a CMP: CookieBot, tarteaucitron, Klaro, CookieYes, OneTrust.
-
 [ADVISE] No privacy policy page found.
 [ADVISE] No robots.txt file found.
-[ADVISE] No test framework detected.
 
 ===================================================
+Security Score: 55/100
 Result: BLOCKED (2B 2W 3A)
 Exit code: 1
 ===================================================
+
+  Next: Fix the 2 BLOCK findings first - the build is blocked until they are resolved.
+  Then address the 2 WARNs (they become BLOCK with --strict).
+  After fixing, run ai-rsk scan to verify.
 ```
 
 The LLM reads this output, fixes every issue, and re-runs the build. It can't skip anything - exit code 1 means the build fails.
@@ -114,6 +117,12 @@ sudo mv ai-rsk /usr/local/bin/
 # Windows: extract the zip, add ai-rsk.exe to your PATH
 ```
 
+### From crates.io
+
+```bash
+cargo install ai-rsk
+```
+
 ### From source (requires Rust 1.85+)
 
 ```bash
@@ -124,7 +133,7 @@ cargo install --git https://github.com/Krigsexe/ai-rsk
 
 ```bash
 ai-rsk --version
-ai-rsk scan --help  # Show scan options
+ai-rsk --help  # Quick start guide with examples
 ```
 
 ## Quick Start
@@ -158,7 +167,7 @@ Non-interactive mode (CI/piped input) uses sensible defaults automatically.
 ### 2. Scan
 
 ```bash
-ai-rsk scan           # Security only (default)
+ai-rsk                # Scan current directory (no subcommand needed)
 ai-rsk scan --strict  # Block on warnings too
 ai-rsk scan --full    # Block on everything (recommended for AI-built projects)
 ai-rsk scan --gdpr    # Add GDPR/RGPD compliance checks

@@ -1,0 +1,9 @@
+# ai-rsk configuration for the ai-rsk project itself.
+# ai-rsk must pass its own scan - eat your own dog food.
+
+# Semgrep false positives: Actix web framework rules are not relevant
+# for a CLI tool. ai-rsk is not a web server - all file paths come from
+# the user's CLI arguments on their own machine, not from network input.
+semgrep_exclude_rules:
+  - "rust.actix.path-traversal.tainted-path.tainted-path"
+  - "rust.actix.command-injection.rust-actix-command-injection.rust-actix-command-injection"
