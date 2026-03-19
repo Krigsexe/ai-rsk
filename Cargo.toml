@@ -1,6 +1,6 @@
 [package]
 name = "ai-rsk"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 authors = ["Julien GELEE <julien.gelee@proton.me>"]
 description = "Security gate for AI-generated code - blocks the build until vulnerabilities are fixed"

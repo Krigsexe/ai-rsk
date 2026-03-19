@@ -221,7 +221,14 @@ pub fn run_self_update() {
 /// Fetch the latest version string from crates.io API.
 fn fetch_latest_version() -> Option<String> {
     let output = std::process::Command::new("curl")
-        .args(["-sfL", "--max-time", "3", CRATES_IO_API])
+        .args([
+            "-sfL",
+            "--max-time",
+            "5",
+            "-H",
+            "User-Agent: ai-rsk",
+            CRATES_IO_API,
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
