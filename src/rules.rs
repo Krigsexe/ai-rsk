@@ -395,6 +395,11 @@ pub fn scan_files(
 
             let lines: Vec<&str> = content.lines().collect();
 
+            // AST filter: parse the file once and collect comment/string ranges.
+            // Regex matches that fall inside these ranges are false positives.
+            let file_ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let non_code_ranges = crate::ast_filter::get_non_code_ranges(&content, file_ext);
+
             // For negation rules with agnostic_negation: true (default),
             // use the project-wide pre-scan result.
             // For negation rules with agnostic_negation: false,
@@ -482,6 +487,21 @@ pub fn scan_files(
                     }
 
                     if re.is_match(line) {
+                        // AST filter: skip matches inside comments/strings/docstrings
+                        if let Some(ref ranges) = non_code_ranges {
+                            // Calculate the byte offset of this line in the file
+                            let line_byte_offset: usize = lines[..line_idx]
+                                .iter()
+                                .map(|l| l.len() + 1) // +1 for newline
+                                .sum();
+                            if let Some(match_pos) = re.find(line) {
+                                let match_byte_offset = line_byte_offset + match_pos.start();
+                                if ranges.iter().any(|r| r.contains(&match_byte_offset)) {
+                                    continue; // Match is in a comment/string — skip
+                                }
+                            }
+                        }
+
                         // Check for ignore comment
                         if check_ignore(&lines, line_idx, &rule.id).is_some() {
                             ignore_count += 1;

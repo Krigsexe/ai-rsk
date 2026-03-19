@@ -1,0 +1,26 @@
+id: PYTHON_MARSHAL_LOAD
+severity: BLOCK
+cwe:
+  - "CWE-502"
+file_patterns:
+  - "*.py"
+patterns:
+  - "marshal\\.loads?\\s*\\("
+case_insensitive: false
+message: "marshal.load()/loads() detected. The marshal module is not secure against malicious data. Unmarshalling arbitrary data can execute arbitrary code. Never use marshal to deserialize untrusted data."
+fix: |
+  Use json for data interchange:
+    import json
+    data = json.loads(raw_data)
+
+  If you need binary serialization, use msgpack or protobuf.
+  NEVER deserialize untrusted data with marshal.
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Python marshal deserialization"
+  note: "Python docs: the marshal module is not intended to be secure against erroneous or maliciously constructed data."

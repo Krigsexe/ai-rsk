@@ -1,0 +1,28 @@
+id: PYTHON_SHELVE_OPEN
+severity: WARN
+cwe:
+  - "CWE-502"
+file_patterns:
+  - "*.py"
+patterns:
+  - "shelve\\.open\\s*\\("
+case_insensitive: false
+message: "shelve.open() detected. The shelve module uses pickle internally, which is vulnerable to arbitrary code execution when loading untrusted data. Do not use shelve to store or load data from untrusted sources."
+fix: |
+  Use a proper database or JSON storage:
+    import json
+    with open('data.json', 'r') as f:
+        data = json.load(f)
+
+  Or use SQLite:
+    import sqlite3
+    conn = sqlite3.connect('data.db')
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Python shelve deserialization (uses pickle internally)"
+  note: "Python docs: shelve is backed by pickle, which can execute arbitrary code. Do not load shelve files from untrusted sources."

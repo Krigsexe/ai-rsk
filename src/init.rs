@@ -859,7 +859,16 @@ fn generate_discipline_file(ecosystems: &[Ecosystem], profiles: &[String]) -> St
     s.push_str("- Run `ai-rsk scan` before committing\n");
     s.push_str("- Fix all BLOCK findings before the build can pass\n");
     s.push_str("- WARN findings become BLOCK in --strict mode\n");
-    s.push_str("- Every `ai-rsk-ignore` comment MUST have a justification after `--`\n");
+    s.push_str("- Every `ai-rsk-ignore` comment MUST have a justification after `--`\n\n");
+
+    s.push_str("### Verification discipline\n");
+    s.push_str("- ALWAYS verify tool detections in the actual source code before acting on them\n");
+    s.push_str("- NEVER assume a detection is correct or incorrect without reading the code\n");
+    s.push_str(
+        "- NEVER make decisions based on probability or assumption - only on verified facts\n",
+    );
+    s.push_str("- External tool findings (Semgrep, Gitleaks, osv-scanner) MUST be cross-checked in the codebase\n");
+    s.push_str("- If a finding seems wrong, verify it in the source code, then use ai-rsk-ignore with justification\n");
 
     // Add ecosystem-specific rules
     if ecosystems.contains(&Ecosystem::JavaScript) {

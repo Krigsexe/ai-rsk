@@ -27,7 +27,7 @@
   </a>
 </p>
 
-ai-rsk blocks your build until security issues are fixed. One Rust binary. Three external tools. 55 built-in rules. 5 compliance profiles (security, GDPR, AI Act, SEO, accessibility). Your AI can't deploy insecure code because the build won't pass.
+ai-rsk blocks your build until security issues are fixed. One Rust binary. Three external tools. 67 built-in rules. 5 compliance profiles (security, GDPR, AI Act, SEO, accessibility). Tree-sitter AST filter for context-aware detection. Your AI can't deploy insecure code because the build won't pass.
 
 ## The Problem
 
@@ -175,9 +175,9 @@ The output tells the LLM exactly what to fix, with code examples. Fix, re-run, r
 
 ## What it Detects
 
-### Layer 1 - 55 Built-in Rules (offline, deterministic)
+### Layer 1 - 67 Built-in Rules (offline, deterministic, AST-filtered)
 
-Patterns that LLMs generate repeatedly and existing tools miss:
+Patterns that LLMs generate repeatedly and existing tools miss. Tree-sitter AST filter eliminates false positives in comments and docstrings.
 
 | Profile | Category | Rules | Examples |
 |---------|----------|-------|---------|
@@ -187,7 +187,10 @@ Patterns that LLMs generate repeatedly and existing tools miss:
 | **security** | Cookie misconfiguration | 3 | Missing HttpOnly, Secure, SameSite flags |
 | **security** | Input/Output | 5 | eval(), CORS wildcard, SSRF, XSS via dangerouslySetInnerHTML, path traversal |
 | **security** | Business logic | 3 | Negative price, SELECT * in response, prompt injection |
-| **security** | Python | 3 | pickle.load (RCE), yaml.unsafe_load (RCE), subprocess shell=True (command injection) |
+| **security** | Django | 4 | DEBUG=True, SECRET_KEY hardcoded, ALLOWED_HOSTS wildcard, missing CSRF middleware |
+| **security** | Flask | 1 | app.run(debug=True) enables RCE via Werkzeug debugger |
+| **security** | Python general | 7 | requests no timeout, os.system, marshal.load, shelve.open, SQL f-string, JWT no verify, eval(input) |
+| **security** | Python (existing) | 3 | pickle.load (RCE), yaml.unsafe_load (RCE), subprocess shell=True (command injection) |
 | **security** | Go | 2 | text/template for HTML (XSS), http.ListenAndServe without timeout (slowloris) |
 | **security** | Infrastructure | 4 | Source maps in prod, body parser no limit, unvalidated redirects, weak hash |
 | **security** | Third-party | 2 | CDN scripts without SRI, Stripe webhooks without signature |
@@ -310,7 +313,7 @@ Rules:
 | Ecosystem | Detection | Layer 1 Rules | Layer 2 Tools | Layer 3 Analysis |
 |-----------|-----------|---------------|---------------|------------------|
 | JavaScript/TypeScript | `package.json` | 39 rules | Semgrep + Gitleaks + osv-scanner + knip | Full (dead deps, console strip, HTTP clients, prebuild) |
-| Python | `requirements.txt`, `pyproject.toml` | 4 rules (pickle, yaml, subprocess, exec) | Semgrep + Gitleaks + osv-scanner | Tests + CI |
+| Python | `requirements.txt`, `pyproject.toml`, `setup.cfg`, `Pipfile`, `requirements/` | 16 rules (Django, Flask, requests, os.system, marshal, shelve, SQL f-string, JWT, eval, pickle, yaml, subprocess, exec) | Semgrep + Gitleaks + osv-scanner | Tests + CI |
 | Go | `go.mod` | 2 rules (text/template XSS, http timeout) | Semgrep + Gitleaks + osv-scanner | Tests + CI |
 | Rust | `Cargo.toml` | Ecosystem-specific discipline | Semgrep + Gitleaks + osv-scanner + cargo-audit | Tests + CI |
 | HTML | `*.html` files | 5 rules (img alt, html lang, form label, CDN SRI, window.opener) | Semgrep | SEO checks (robots, sitemap, viewport, canonical) |

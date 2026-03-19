@@ -1,0 +1,28 @@
+id: DJANGO_DEBUG_TRUE
+severity: BLOCK
+cwe:
+  - "CWE-489"
+file_patterns:
+  - "*.py"
+patterns:
+  - "DEBUG\\s*=\\s*True"
+case_insensitive: false
+message: "Django DEBUG=True detected. In production, DEBUG=True exposes full stack traces, SQL queries, and internal paths to any visitor. This is a critical information disclosure vulnerability."
+fix: |
+  Set DEBUG from environment variable:
+    import os
+    DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+
+  Or use django-environ:
+    import environ
+    env = environ.Env(DEBUG=(bool, False))
+    DEBUG = env('DEBUG')
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Django DEBUG=True in source code"
+  note: "Django docs explicitly warn: never deploy with DEBUG=True. It reveals settings, installed apps, tracebacks, and SQL queries."

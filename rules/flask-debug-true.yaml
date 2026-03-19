@@ -1,0 +1,26 @@
+id: FLASK_DEBUG_TRUE
+severity: BLOCK
+cwe:
+  - "CWE-489"
+file_patterns:
+  - "*.py"
+patterns:
+  - "app\\.run\\s*\\([^)]*debug\\s*=\\s*True"
+  - "\\.run\\s*\\([^)]*debug\\s*=\\s*True"
+case_insensitive: false
+message: "Flask app.run(debug=True) detected. Debug mode enables the interactive debugger which allows arbitrary code execution from the browser. Anyone who can reach the debug page can execute Python code on the server."
+fix: |
+  Use environment variable:
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
+
+  Or use Flask CLI (recommended):
+    flask run  # reads FLASK_DEBUG from .env
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Flask debug=True in source code"
+  note: "Flask Werkzeug debugger allows RCE. CVE-2015-5306. Never use debug=True in production."

@@ -1,0 +1,29 @@
+id: PYTHON_JWT_NO_VERIFY
+severity: BLOCK
+cwe:
+  - "CWE-347"
+file_patterns:
+  - "*.py"
+patterns:
+  - "jwt\\.decode\\s*\\([^)]*verify\\s*=\\s*False"
+  - "jwt\\.decode\\s*\\([^)]*options\\s*=\\s*\\{[^}]*\"verify_signature\"\\s*:\\s*False"
+case_insensitive: false
+message: "JWT decoded with signature verification disabled. Without signature verification, anyone can forge a valid-looking JWT with arbitrary claims (admin privileges, any user ID). This completely defeats JWT authentication."
+fix: |
+  Always verify the signature:
+    # WRONG (vulnerable):
+    payload = jwt.decode(token, options={"verify_signature": False})
+
+    # RIGHT (safe):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+
+  Always specify the algorithm to prevent algorithm confusion attacks.
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Python JWT decode without signature verification"
+  note: "PyJWT library: verify=False or verify_signature=False skips all cryptographic checks. Common in LLM-generated code that 'just wants to read the payload'."

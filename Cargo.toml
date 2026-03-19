@@ -1,6 +1,6 @@
 [package]
 name = "ai-rsk"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["Julien GELEE <julien.gelee@proton.me>"]
 description = "Security gate for AI-generated code - blocks the build until vulnerabilities are fixed"
@@ -33,6 +33,10 @@ chrono = "0.4"
 cliclack = "0.4"
 # Terminal utilities (measure ANSI text width, pad strings)
 console = "0.15"
+# AST parsing for context-aware rule filtering (comments, docstrings)
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
 
 [dev-dependencies]
 # Temporary directories for tests

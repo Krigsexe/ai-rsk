@@ -1,0 +1,27 @@
+id: PYTHON_REQUESTS_NO_TIMEOUT
+severity: WARN
+cwe:
+  - "CWE-400"
+file_patterns:
+  - "*.py"
+patterns:
+  - "requests\\.(get|post|put|delete|patch|head|options)\\s*\\([^)]*\\)"
+negation: true
+negation_pattern: "timeout\\s*="
+agnostic_negation: false
+case_insensitive: false
+message: "Python requests call without timeout parameter. Without a timeout, the request can hang indefinitely, consuming server resources and potentially causing denial of service."
+fix: |
+  Always set a timeout:
+    response = requests.get(url, timeout=10)
+    response = requests.post(url, data=payload, timeout=(3.05, 27))
+
+  The tuple form sets (connect_timeout, read_timeout).
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Python requests without timeout"
+  note: "requests library docs: it is recommended to set timeouts on all production code. Without timeouts, code may hang for minutes or more."

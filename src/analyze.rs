@@ -818,6 +818,7 @@ fn check_lockfile(project_path: &Path, ecosystems: &[Ecosystem]) -> Vec<Finding>
         ("go.sum", &[Ecosystem::Go]),
         ("poetry.lock", &[Ecosystem::Python]),
         ("Pipfile.lock", &[Ecosystem::Python]),
+        ("uv.lock", &[Ecosystem::Python]),
         ("requirements.txt", &[Ecosystem::Python]),
     ];
 

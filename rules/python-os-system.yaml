@@ -1,0 +1,27 @@
+id: PYTHON_OS_SYSTEM
+severity: BLOCK
+cwe:
+  - "CWE-78"
+file_patterns:
+  - "*.py"
+patterns:
+  - "os\\.system\\s*\\("
+  - "os\\.popen\\s*\\("
+case_insensitive: false
+message: "os.system() or os.popen() detected. These functions execute shell commands and are vulnerable to command injection if any part of the command comes from user input. Unlike subprocess with shell=False, os.system always invokes the shell."
+fix: |
+  Use subprocess with shell=False (default):
+    import subprocess
+    result = subprocess.run(['ls', '-la', path], capture_output=True, text=True)
+
+  NEVER pass user input to os.system() or os.popen().
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+  - "scripts"
+category: "security"
+metadata:
+  name: "Python os.system/os.popen command execution"
+  note: "os.system passes the command to the system shell. Any shell metacharacters in user input will be interpreted. subprocess with shell=False is the safe alternative."

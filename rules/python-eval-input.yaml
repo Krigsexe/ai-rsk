@@ -1,0 +1,34 @@
+id: PYTHON_EVAL_INPUT
+severity: BLOCK
+cwe:
+  - "CWE-95"
+file_patterns:
+  - "*.py"
+patterns:
+  - "eval\\s*\\(\\s*input\\s*\\("
+  - "eval\\s*\\(\\s*request\\."
+  - "eval\\s*\\(\\s*self\\.request\\."
+  - "eval\\s*\\(\\s*data\\["
+case_insensitive: false
+message: "eval() called with user input detected. eval() executes arbitrary Python code. Combined with user input (input(), request data, URL parameters), this allows remote code execution."
+fix: |
+  NEVER use eval() with user input. Alternatives:
+    # For math expressions:
+    import ast
+    result = ast.literal_eval(user_input)  # Safe: only literals
+
+    # For JSON:
+    import json
+    data = json.loads(user_input)
+
+    # For config:
+    Use a proper config parser, not eval().
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Python eval() with user input (RCE)"
+  note: "CWE-95: eval of user-supplied code. The most dangerous Python pattern. LLMs frequently generate eval(input()) for 'calculator' exercises."

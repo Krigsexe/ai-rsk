@@ -38,6 +38,22 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
         include_str!("../rules/dangerouslysetinnerhtml-dynamic.yaml"),
     ),
     (
+        "django-allowed-hosts-wildcard.yaml",
+        include_str!("../rules/django-allowed-hosts-wildcard.yaml"),
+    ),
+    (
+        "django-debug-true.yaml",
+        include_str!("../rules/django-debug-true.yaml"),
+    ),
+    (
+        "django-no-csrf-middleware.yaml",
+        include_str!("../rules/django-no-csrf-middleware.yaml"),
+    ),
+    (
+        "django-secret-key-hardcoded.yaml",
+        include_str!("../rules/django-secret-key-hardcoded.yaml"),
+    ),
+    (
         "error-stack-leak.yaml",
         include_str!("../rules/error-stack-leak.yaml"),
     ),
@@ -48,6 +64,10 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     (
         "exec-dynamic-python.yaml",
         include_str!("../rules/exec-dynamic-python.yaml"),
+    ),
+    (
+        "flask-debug-true.yaml",
+        include_str!("../rules/flask-debug-true.yaml"),
     ),
     (
         "form-no-label.yaml",
@@ -142,6 +162,34 @@ pub const EMBEDDED_RULES: &[(&str, &str)] = &[
     (
         "prompt-injection-concat.yaml",
         include_str!("../rules/prompt-injection-concat.yaml"),
+    ),
+    (
+        "python-eval-input.yaml",
+        include_str!("../rules/python-eval-input.yaml"),
+    ),
+    (
+        "python-jwt-no-verify.yaml",
+        include_str!("../rules/python-jwt-no-verify.yaml"),
+    ),
+    (
+        "python-marshal-load.yaml",
+        include_str!("../rules/python-marshal-load.yaml"),
+    ),
+    (
+        "python-os-system.yaml",
+        include_str!("../rules/python-os-system.yaml"),
+    ),
+    (
+        "python-requests-no-timeout.yaml",
+        include_str!("../rules/python-requests-no-timeout.yaml"),
+    ),
+    (
+        "python-shelve-open.yaml",
+        include_str!("../rules/python-shelve-open.yaml"),
+    ),
+    (
+        "python-sql-fstring.yaml",
+        include_str!("../rules/python-sql-fstring.yaml"),
     ),
     (
         "select-star-response.yaml",

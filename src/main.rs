@@ -1,4 +1,5 @@
 mod analyze;
+mod ast_filter;
 mod cli;
 mod config;
 mod detect;

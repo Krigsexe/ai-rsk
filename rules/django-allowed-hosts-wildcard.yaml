@@ -1,0 +1,26 @@
+id: DJANGO_ALLOWED_HOSTS_WILDCARD
+severity: WARN
+cwe:
+  - "CWE-942"
+file_patterns:
+  - "*.py"
+patterns:
+  - "ALLOWED_HOSTS\\s*=\\s*\\[\\s*['\"]\\*['\"]"
+case_insensitive: false
+message: "Django ALLOWED_HOSTS contains wildcard '*'. This disables host header validation, enabling HTTP Host header attacks (cache poisoning, password reset poisoning, SSRF via host header)."
+fix: |
+  Set ALLOWED_HOSTS to your actual domain(s):
+    ALLOWED_HOSTS = ['yourdomain.com', 'www.yourdomain.com']
+
+  Or from environment:
+    import os
+    ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+negation: false
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Django ALLOWED_HOSTS wildcard"
+  note: "Django docs: if ALLOWED_HOSTS is ['*'], the Host header is not validated, which opens the door to HTTP Host header attacks."

@@ -1,0 +1,28 @@
+id: DJANGO_NO_CSRF_MIDDLEWARE
+severity: WARN
+cwe:
+  - "CWE-352"
+file_patterns:
+  - "*.py"
+patterns:
+  - "MIDDLEWARE\\s*=\\s*\\["
+negation: true
+negation_pattern: "CsrfViewMiddleware"
+agnostic_negation: true
+case_insensitive: false
+message: "Django MIDDLEWARE defined without CsrfViewMiddleware. Without CSRF protection, attackers can trick authenticated users into performing unwanted actions (transfers, password changes, data deletion)."
+fix: |
+  Add CsrfViewMiddleware to MIDDLEWARE:
+    MIDDLEWARE = [
+        'django.middleware.security.SecurityMiddleware',
+        'django.middleware.csrf.CsrfViewMiddleware',  # Add this
+        ...
+    ]
+exclude_paths:
+  - "test"
+  - "tests"
+  - "fixtures"
+category: "security"
+metadata:
+  name: "Django missing CSRF middleware"
+  note: "Django includes CSRF protection by default, but LLMs sometimes remove it or forget to include it when generating settings.py."

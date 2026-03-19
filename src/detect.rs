@@ -11,10 +11,13 @@ pub fn detect_ecosystems(project_path: &Path) -> Vec<Ecosystem> {
         ecosystems.push(Ecosystem::JavaScript);
     }
 
-    // Python: requirements.txt, pyproject.toml, or setup.py
+    // Python: requirements.txt, pyproject.toml, setup.py, setup.cfg, Pipfile, or requirements/ dir
     if project_path.join("requirements.txt").exists()
         || project_path.join("pyproject.toml").exists()
         || project_path.join("setup.py").exists()
+        || project_path.join("setup.cfg").exists()
+        || project_path.join("Pipfile").exists()
+        || project_path.join("requirements").is_dir()
     {
         ecosystems.push(Ecosystem::Python);
     }

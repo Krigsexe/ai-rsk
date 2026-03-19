@@ -430,11 +430,17 @@ pub fn run_external_tools(
 }
 
 /// Truncate output to a maximum length to avoid flooding the terminal.
+/// Finds the nearest valid UTF-8 char boundary to avoid panicking on multi-byte characters.
 fn truncate_output(output: &str, max_chars: usize) -> String {
     if output.len() <= max_chars {
         output.to_string()
     } else {
-        let truncated = &output[..max_chars];
+        // Walk backwards from max_chars to find a valid UTF-8 char boundary
+        let mut boundary = max_chars;
+        while boundary > 0 && !output.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        let truncated = &output[..boundary];
         format!(
             "{}...\n[truncated - {} chars total]",
             truncated,
