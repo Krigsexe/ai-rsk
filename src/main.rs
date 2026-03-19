@@ -9,6 +9,7 @@ mod rules;
 mod runner;
 mod tools;
 mod types;
+mod version;
 
 use anyhow::Result;
 use clap::Parser;
@@ -41,7 +42,12 @@ fn run() -> Result<()> {
         } => {
             let path = path.canonicalize().unwrap_or(path);
 
-            // Step 0: LOAD config
+            // Step 0: Check for updates (non-blocking, silent on failure)
+            if !json {
+                version::check_for_update();
+            }
+
+            // Step 0.5: LOAD config
             let config = config::Config::load(&path)?;
 
             // Resolve active profiles and mode from config + CLI flags
